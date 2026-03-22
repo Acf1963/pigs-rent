@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: agro_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: pwa_agro_analytics
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./database:/docker-entrypoint-initdb.d
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
