@@ -3,10 +3,17 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/', // Garante que o index.html aponte para /assets/...
+  base: '/', 
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    // Isto garante que o Vite gera o index.html com caminhos que a Vercel entende
     emptyOutDir: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      },
+    },
   }
 })
