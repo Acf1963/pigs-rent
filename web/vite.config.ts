@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '', // <-- Isto remove a barra inicial e resolve o erro de MIME type
+  // Forçamos a base para '/' para garantir que o index.html 
+  // procure os scripts na raiz do domínio servido pela Vercel
+  base: '/', 
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
