@@ -6,9 +6,9 @@
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/src/index.ts" },
-    { "src": "/assets/(.*)", "dest": "web/dist/assets/$1" },
+    { "src": "/assets/(.*)", "dest": "/web/dist/assets/$1" },
     { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "web/dist/$1", "continue": true },
-    { "src": "/.*", "dest": "web/dist/index.html" }
+    { "src": "/(.*)", "dest": "/web/dist/$1", "continue": true },
+    { "src": "/.*", "dest": "/web/dist/index.html" }
   ]
 }
