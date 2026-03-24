@@ -1,14 +1,22 @@
 {
   "version": 2,
+  "name": "pigs-rent",
   "builds": [
-    { "src": "api/src/index.ts", "use": "@vercel/node" },
-    { "src": "web/package.json", "use": "@vercel/static-build" }
+    {
+      "src": "api/src/index.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "web/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
+    }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/src/index.ts" },
-    { "src": "/assets/(.*)", "dest": "web/assets/$1", "continue": true },
-    { "src": "/(.*)", "dest": "web/$1", "continue": true },
+    { "src": "/assets/(.*)", "dest": "web/dist/assets/$1" },
+    { "src": "/(.*)", "dest": "web/dist/$1", "continue": true },
     { "handle": "filesystem" },
-    { "src": "/.*", "dest": "web/index.html" }
+    { "src": "/.*", "dest": "web/dist/index.html" }
   ]
 }
