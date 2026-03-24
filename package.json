@@ -7,7 +7,7 @@
   "license": "ISC",
   "scripts": {
     "dev": "concurrently --kill-others -n \"API,WEB\" -c \"magenta,cyan\" \"npm run dev --prefix api\" \"npm run dev --prefix web\"",
-    "install:all": "npm install --prefix api && npm install --prefix web",
+    "postinstall": "npm install --prefix api --legacy-peer-deps && npm install --prefix web --legacy-peer-deps",
     "build": "npm run build --prefix web",
     "clean": "rm -rf api/node_modules web/node_modules web/dist",
     "lint": "npm run lint --prefix web"
