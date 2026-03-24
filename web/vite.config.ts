@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '', // <-- Crítico para resolver o erro de MIME type
+  base: './', // Força caminhos relativos para os scripts
   build: {
     outDir: 'dist',
     emptyOutDir: true
