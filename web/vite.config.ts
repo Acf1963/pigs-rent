@@ -3,12 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  // Forçamos a base para '/' para garantir que o index.html 
-  // procure os scripts na raiz do domínio servido pela Vercel
-  base: '/', 
+  base: '/', // Garante que o index.html aponte para /assets/...
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    emptyOutDir: true
+    emptyOutDir: true,
   }
 })
