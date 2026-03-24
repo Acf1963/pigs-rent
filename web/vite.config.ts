@@ -3,16 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  // Isto força o Vite a usar caminhos que funcionam tanto local como na Vercel
-  base: '/', 
-  server: {
-    // Garante que em desenvolvimento local não criamos conflitos de porta
-    port: 5173,
-    strictPort: true,
-  },
+  base: '/', // Força caminhos absolutos em relação à raiz do domínio, não ao localhost
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    emptyOutDir: true
+    emptyOutDir: true,
   }
 })
