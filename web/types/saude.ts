@@ -1,24 +1,18 @@
-// web/src/types/saude.ts
-
 export type TipoIntervencao = 'VACINA' | 'VERMIFUGO' | 'TRATAMENTO' | 'SUPLEMENTO';
 
 export interface RegistroSaude {
   id: string;
-  animalId?: string;       // Se for tratamento individual
-  loteId?: string;         // Se for aplicado a todo o lote (ex: vacinação em massa)
+  animalId?: string;
+  loteId?: string;
   data: string;
-  
   tipo: TipoIntervencao;
-  medicamento: string;     // Nome do produto (ex: Aftosa, Ivermectina)
-  loteMedicamento: string; // Para rastreabilidade total
-  dosagem: string;         // Ex: "5ml", "2mg/kg"
+  medicamento: string;
+  loteMedicamento: string;
+  dosagem: string;
   viaAplicacao: 'ORAL' | 'SUBCUTANEA' | 'INTRAMUSCULAR';
-  
-  // O ponto crítico para o Abate:
   periodoCarenciaDias: number; 
-  dataLiberacaoAbate: string; // Calculado: data + periodoCarenciaDias
-  
-  custoMedicamento: number;   // Para somar ao custo operacional do animal
+  dataLiberacaoAbate: string;
+  custoMedicamento: number;
   veterinarioResponsavel: string;
   observacoes?: string;
 }
