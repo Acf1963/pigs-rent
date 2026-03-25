@@ -7,9 +7,9 @@ import { RowDataPacket } from 'mysql2';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Alterei para 3001 para não chocar com o padrão do Vite ou outras ferramentas
+const PORT = process.env.PORT || 3001;
 
-// Configuração de CORS flexível para Produção/Dev
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -18,29 +18,37 @@ app.use(cors({
 
 app.use(express.json());
 
-// Rota de Health Check
+// Rota de Health Check - Útil para monitorização
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'Pigs Rent API Online', timestamp: new Date() });
+  res.json({ 
+    status: 'Pigs Rent API Online', 
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV || 'development'
+  });
 });
 
-// Rota de Lotes
+// Rota de Lotes (Sincronizada com dim_lote do MySQL)
 app.get('/api/lotes', async (_req: Request, res: Response) => {
   try {
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM dim_lote');
+    // Verificamos se o pool existe antes de consultar
+    if (!pool) throw new Error("Base de dados não configurada");
+    
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM dim_lote ORDER BY id DESC');
     res.json(rows);
-  } catch (error) {
-    console.error('❌ Erro na base de dados:', error);
+  } catch (error: any) {
+    console.error('❌ Erro na base de dados:', error.message);
     res.status(500).json({ 
-      error: 'Erro ao consultar lotes',
-      details: process.env.NODE_ENV === 'development' ? error : undefined 
+      error: 'Erro ao consultar lotes no MySQL',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined 
     });
   }
 });
 
-// Só inicia o servidor se não estiver na Vercel (Serverless mode)
+// Início do servidor
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    console.log(`🚀 API Ativa em http://localhost:${PORT}`);
+    console.log(`🚀 API Pigs Rent Ativa em http://localhost:${PORT}`);
+    console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
   });
 }
 
