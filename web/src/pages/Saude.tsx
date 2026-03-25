@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ChangeEvent } from 'react'; // Adicionado ChangeEvent
 import { db } from '../lib/firebase';
 import { collection, addDoc, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { Syringe, FileUp, FileDown, FileText, Calendar, AlertCircle } from 'lucide-react';
@@ -20,7 +20,7 @@ export default function SaudePage() {
   }, []);
 
   // 2. IMPORTAR EXCEL ( MANEJO SANITÁRIO )
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -46,6 +46,7 @@ export default function SaudePage() {
         alert("Erro ao ler o ficheiro Excel de saúde.");
       } finally {
         setIsImporting(false);
+        e.target.value = ''; // Limpa o input para permitir nova importação do mesmo arquivo
       }
     };
     reader.readAsBinaryString(file);
@@ -98,7 +99,7 @@ export default function SaudePage() {
   return (
     <div className="space-y-6 text-slate-900 font-sans">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-6">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-cyan-100 text-cyan-700 rounded-2xl">
             <Syringe size={28} />
@@ -127,7 +128,7 @@ export default function SaudePage() {
       </div>
 
       {/* Listagem de Tratamentos */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm mx-6">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -158,15 +159,15 @@ export default function SaudePage() {
                       <Calendar size={14} />
                       {new Date(t.dataAplicacao).toLocaleDateString('pt-PT')}
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                    <td className="px-6 py-4 text-slate-400 flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase ${
                         t.diasCarencia > 0 
-                          ? 'bg-amber-100 text-amber-700' 
-                          : 'bg-emerald-100 text-emerald-700'
-                      }`}>
+                            ? 'bg-amber-100 text-amber-700' 
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}>
                         <AlertCircle size={10} />
                         {t.diasCarencia > 0 ? `${t.diasCarencia} dias restantes` : 'Livre para Abate'}
-                      </span>
+                        </span>
                     </td>
                   </tr>
                 ))
