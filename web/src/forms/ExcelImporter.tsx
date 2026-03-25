@@ -1,96 +1,57 @@
-import { useState, useRef } from 'react';
-import { Upload, FileSpreadsheet, X, CheckCircle } from 'lucide-react'; // Removido AlertCircle
-import * as XLSX from 'xlsx';
+import { useState } from 'react';
+import * as XLSX from 'xlsx'; // Certifica-te que tens a lib xlsx instalada
+import { FileSpreadsheet, Upload } from 'lucide-react';
 
+// 1. DEFINIÇÃO DA INTERFACE (Resolve o erro 2322)
 interface ExcelImporterProps {
-  tipo: 'LOTES' | 'ANIMAIS' | 'MANEJO' | 'SAUDE';
-  onDataImported: (data: any[]) => void;
+  onImport: (dados: any[]) => void;
 }
 
-export function ExcelImporter({ tipo, onDataImported }: ExcelImporterProps) {
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export function ExcelImporter({ onImport }: ExcelImporterProps) {
+  const [loading, setLoading] = useState(false);
 
-  const processFile = (file: File) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const bstr = e.target?.result;
+
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
       const wb = XLSX.read(bstr, { type: 'binary' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws);
       
-      setFileName(file.name);
-      onDataImported(data);
+      // Envia os dados para o Lotes.tsx
+      onImport(data);
+      setLoading(false);
     };
+
     reader.readAsBinaryString(file);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
-  };
-
-  const clearFile = () => {
-    setFileName(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    onDataImported([]);
-  };
-
   return (
-    <div className="w-full">
-      {!fileName ? (
-        <div 
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            const file = e.dataTransfer.files[0];
-            if (file) processFile(file);
-          }}
-          onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-3xl p-10 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 ${
-            isDragging ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 hover:border-slate-300 bg-slate-50'
-          }`}
-        >
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            className="hidden" 
-            accept=".xlsx, .xls, .csv" 
-          />
-          <div className="bg-white p-4 rounded-2xl shadow-sm text-cyan-600">
-            <Upload size={32} />
-          </div>
-          <div className="text-center">
-            <p className="text-slate-700 font-bold">Clique ou arraste o Excel de {tipo}</p>
-            <p className="text-slate-400 text-sm mt-1">Formatos suportados: .xlsx, .xls, .csv</p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-100 rounded-2xl animate-in fade-in zoom-in duration-300">
-          <div className="flex items-center gap-4">
-            <div className="bg-white p-2 rounded-xl text-emerald-600 shadow-sm">
-              <FileSpreadsheet size={24} />
-            </div>
-            <div>
-              <p className="text-emerald-900 font-bold text-sm">{fileName}</p>
-              <div className="flex items-center gap-1 text-emerald-600 text-xs">
-                <CheckCircle size={12} /> Ficheiro carregado com sucesso
-              </div>
-            </div>
-          </div>
-          <button 
-            onClick={clearFile}
-            className="p-2 hover:bg-emerald-100 rounded-full text-emerald-700 transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-      )}
+    <div className="flex flex-col items-center justify-center gap-4">
+      <div className="p-4 bg-cyan-50 rounded-full text-cyan-600 mb-2">
+        <FileSpreadsheet size={40} />
+      </div>
+      <div>
+        <h4 className="text-lg font-bold text-slate-800">Importação de Lotes</h4>
+        <p className="text-sm text-slate-500 mb-6">Selecione o ficheiro .xlsx da Fazenda Quanza</p>
+      </div>
+      
+      <label className="cursor-pointer bg-cyan-600 hover:bg-cyan-700 text-white px-8 py-4 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-cyan-100">
+        <Upload size={20} />
+        {loading ? 'A processar...' : 'Selecionar Ficheiro'}
+        <input 
+          type="file" 
+          accept=".xlsx, .xls" 
+          className="hidden" 
+          onChange={handleFileUpload} 
+        />
+      </label>
     </div>
   );
 }
