@@ -1,5 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { LayoutDashboard, ClipboardList, PiggyBank } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, PiggyBank, TrendingUp } from 'lucide-react';
+
+// IMPORTAÇÃO DOS TEUS COMPONENTES REAIS
+import DashboardPage from './pages/Dashboard';
+import LotesPage from './pages/Lotes';
+import AbatesPage from './pages/Abates'; // Certifica-te que este ficheiro existe em src/pages
 
 export default function App() {
   return (
@@ -29,7 +34,14 @@ export default function App() {
               <span className="font-medium">Gestão de Lotes</span>
             </Link>
 
-            {/* Inclusão do PiggyBank para resolver o aviso do TS e preparar o financeiro */}
+            <Link 
+              to="/abates" 
+              className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-800 hover:text-cyan-300 transition-all"
+            >
+              <TrendingUp size={20}/> 
+              <span className="font-medium">Abates</span>
+            </Link>
+
             <Link 
               to="/rendas" 
               className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-800 hover:text-cyan-300 transition-all"
@@ -49,24 +61,12 @@ export default function App() {
 
           <div className="p-8">
             <Routes>
-              <Route 
-                path="/" 
-                element={
-                  <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-                    <h3 className="text-2xl font-bold text-slate-800">Bem-vindo, António!</h3>
-                    <p className="text-slate-600 mt-2">Visão geral da rentabilidade da Fazenda Quanza.</p>
-                  </div>
-                } 
-              />
-              <Route 
-                path="/lotes" 
-                element={
-                  <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-                    <h3 className="text-2xl font-bold text-slate-800">Lotes Ativos</h3>
-                    <p className="text-slate-600 mt-2">Listagem detalhada de animais e fornecedores.</p>
-                  </div>
-                } 
-              />
+              {/* AGORA USAMOS OS COMPONENTES QUE REFATORAMOS */}
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/lotes" element={<LotesPage />} />
+              <Route path="/abates" element={<AbatesPage />} />
+              
+              {/* Mantemos este estático até teres o componente financeiro pronto */}
               <Route 
                 path="/rendas" 
                 element={
