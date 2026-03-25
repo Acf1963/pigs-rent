@@ -1,155 +1,159 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react'; // Removido o import do 'React' não utilizado
 import { 
-  ClipboardCheck, 
-  History, 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  deleteDoc, 
+  doc 
+} from 'firebase/firestore'; // Removido 'addDoc' e 'Timestamp'
+import { db } from '../lib/firebase';
+import { 
+  Plus, 
+  FileText, 
+  Trash2, 
+  Gavel, 
   TrendingUp, 
-  Scale, 
-  Calendar,
-  Search
-} from 'lucide-react';
-import { AbateForm } from '../forms/AbateForm';
-import { dataService } from '../lib/dataService';
-import { Abate } from '../types/comercial';
+  Search 
+} from 'lucide-react'; // Removidos 'FileDown' e 'TrendingDown'
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
-export default function AbatesPage() {
-  const [activeTab, setActiveTab] = useState<'registo' | 'historico'>('registo');
+interface Abate {
+  id: string;
+  lote: string;
+  quantidade: number;
+  pesoVivo: number;
+  pesoCarcaca: number;
+  rendimento: number;
+  cliente: string;
+  dataAbate: string;
+}
+
+export default function Abates() {
   const [abates, setAbates] = useState<Abate[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Carregar histórico quando a aba mudar
+  // Listener em tempo real para os registros de abates
   useEffect(() => {
-    if (activeTab === 'historico') {
-      carregarHistorico();
-    }
-  }, [activeTab]);
-
-  const carregarHistorico = async () => {
-    setLoading(true);
-    try {
-      // Nota: Assume que criaste o método getAll no dataService
-      const docs = await dataService.getAll('abates');
-      setAbates(docs as Abate[]);
-    } catch (error) {
-      console.error("Erro ao carregar abates:", error);
-    } finally {
+    const q = query(collection(db, 'abates'), orderBy('dataAbate', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const docs: Abate[] = [];
+      querySnapshot.forEach((doc) => {
+        docs.push({ id: doc.id, ...doc.data() } as Abate);
+      });
+      setAbates(docs);
       setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Tem certeza que deseja excluir este registro de abate?')) {
+      try {
+        await deleteDoc(doc(db, 'abates', id));
+      } catch (error) {
+        console.error("Erro ao excluir documento: ", error);
+      }
     }
   };
 
+  const filteredAbates = abates.filter(abate => 
+    abate.lote.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    abate.cliente.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="min-h-screen bg-slate-50 p-6 md:p-10">
-      <header className="max-w-6xl mx-auto mb-10">
-        <div className="flex items-center gap-4 mb-2">
-          <div className="bg-emerald-600 text-white p-2 rounded-xl shadow-lg shadow-emerald-200">
-            <TrendingUp size={24} />
-          </div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Controlo de Abates</h1>
-        </div>
-        <p className="text-slate-500">Monitorização de produtividade e rendimento de carcaça - Fazenda Quanza.</p>
-      </header>
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <Gavel className="w-8 h-8 text-orange-600" />
+          Controle de Abates
+        </h1>
+        <button className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+          <Plus className="w-5 h-5" />
+          Novo Registro
+        </button>
+      </div>
 
-      <main className="max-w-6xl mx-auto">
-        {/* Navegação entre Abas */}
-        <div className="flex bg-slate-200/50 p-1.5 rounded-2xl w-fit mb-8 border border-slate-200">
-          <button
-            onClick={() => setActiveTab('registo')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-              activeTab === 'registo' 
-              ? 'bg-white text-emerald-600 shadow-sm' 
-              : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <ClipboardCheck size={18} /> Novo Abate
-          </button>
-          <button
-            onClick={() => setActiveTab('historico')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-              activeTab === 'historico' 
-              ? 'bg-white text-emerald-600 shadow-sm' 
-              : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <History size={18} /> Histórico
+      {/* Barra de Busca e Filtros */}
+      <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+          <input
+            type="text"
+            placeholder="Buscar por lote ou cliente..."
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-2 w-full md:w-auto">
+          <button className="flex-1 md:flex-none border border-gray-200 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-50">
+            <FileText className="w-5 h-5 text-gray-600" />
+            Exportar PDF
           </button>
         </div>
+      </div>
 
-        <section className="min-h-[500px]">
-          {activeTab === 'registo' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Formulário à Esquerda */}
-              <div className="lg:col-span-2">
-                <AbateForm />
-              </div>
-
-              {/* Card de Informação à Direita */}
-              <div className="bg-emerald-900 text-emerald-50 p-8 rounded-3xl shadow-xl flex flex-col justify-between relative overflow-hidden">
-                <div className="relative z-10">
-                  <h4 className="font-bold text-lg mb-4">Dica de Rendimento</h4>
-                  <p className="text-emerald-200 text-sm leading-relaxed">
-                    O rendimento médio esperado para suínos na região é de 70-75%. 
-                    Valores abaixo disto podem indicar problemas na nutrição final do lote.
-                  </p>
-                </div>
-                <div className="mt-8 pt-8 border-t border-emerald-800 relative z-10">
-                  <div className="flex items-center gap-3 mb-4 text-emerald-400">
-                    <Scale size={20} />
-                    <span className="text-xs font-bold uppercase tracking-widest">Métrica Crítica</span>
-                  </div>
-                  <p className="text-2xl font-bold">Peso Carcaça</p>
-                  <p className="text-emerald-400 text-sm">vs. Peso Vivo</p>
-                </div>
-                {/* Decorativo */}
-                <TrendingUp size={150} className="absolute -bottom-10 -right-10 text-emerald-800 opacity-50" />
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
-                <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                  <Search size={18} className="text-slate-400" /> Últimos Abates Registados
-                </h3>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-                      <th className="px-6 py-4">Data</th>
-                      <th className="px-6 py-4">ID Lote</th>
-                      <th className="px-6 py-4">Qtd</th>
-                      <th className="px-6 py-4 text-right">Peso Total (Kg)</th>
-                      <th className="px-6 py-4 text-right">Média/Animal</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {abates.length > 0 ? abates.map((a, index) => (
-                      <tr key={index} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-6 py-4 text-sm text-slate-600 flex items-center gap-2">
-                          <Calendar size={14} className="text-slate-300" /> {a.data_abate}
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-700 text-sm">{a.lote_id}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{a.quantidade}</td>
-                        <td className="px-6 py-4 text-right font-mono text-emerald-600 font-bold">
-                          {a.peso_carcaca_total?.toLocaleString()} kg
-                        </td>
-                        <td className="px-6 py-4 text-right text-sm text-slate-500">
-                          {a.quantidade ? (a.peso_carcaca_total / a.quantidade).toFixed(2) : 0} kg
-                        </td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-20 text-center text-slate-400 italic">
-                          {loading ? "A carregar histórico de Luanda..." : "Nenhum abate encontrado."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </section>
-      </main>
+      {/* Tabela de Abates */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Data</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Lote</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Qtd</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Peso Vivo (kg)</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Carcaça (kg)</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Rendimento</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">Carregando dados...</td>
+                </tr>
+              ) : filteredAbates.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">Nenhum registro encontrado.</td>
+                </tr>
+              ) : (
+                filteredAbates.map((abate) => (
+                  <tr key={abate.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {format(new Date(abate.dataAbate), 'dd/MM/yyyy', { locale: ptBR })}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{abate.lote}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{abate.quantidade}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{abate.pesoVivo.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{abate.pesoCarcaca.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-sm">
+                      <span className="flex items-center gap-1 text-green-600 font-medium">
+                        <TrendingUp className="w-4 h-4" />
+                        {abate.rendimento}%
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <button 
+                        onClick={() => handleDelete(abate.id)}
+                        className="text-red-500 hover:text-red-700 p-1 rounded-md transition-colors"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
