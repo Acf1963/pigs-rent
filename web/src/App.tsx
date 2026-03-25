@@ -11,6 +11,7 @@ import {
 import DashboardPage from './pages/Dashboard';
 import LotesPage from './pages/Lotes';
 import AbatesPage from './pages/Abates';
+import SaudePage from './pages/Saude'; // Nova página que acabámos de criar
 
 function Sidebar() {
   const location = useLocation();
@@ -85,6 +86,7 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/lotes" element={<LotesPage />} />
               <Route path="/abates" element={<AbatesPage />} />
+              <Route path="/saude" element={<SaudePage />} />
               <Route path="*" element={
                 <div className="p-10 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                   Módulo em desenvolvimento para o Pigs Rent

@@ -1,25 +1,17 @@
 {
   "name": "pigs-rent-monorepo",
   "version": "1.0.0",
-  "description": "Sistema de Gestão Pigs Rent - Monorepo (Angola)",
-  "main": "index.js",
-  "author": "António Carlos Fernandes da Silva",
-  "license": "ISC",
+  "description": "Gestão Agro-Rentabilidade - Visangol",
   "scripts": {
-    "dev": "concurrently --kill-others -n \"API,WEB\" -c \"magenta,cyan\" \"npm run dev --prefix api\" \"npm run dev --prefix web\"",
-    "postinstall": "npm install --prefix api --legacy-peer-deps && npm install --prefix web --legacy-peer-deps",
-    "build": "npm run build --prefix web",
-    "clean": "rm -rf api/node_modules web/node_modules web/dist",
-    "lint": "npm run lint --prefix web"
+    "dev": "concurrently \"npm run dev --workspace=web\" \"npm run dev --workspace=api\"",
+    "web": "npm run dev --workspace=web",
+    "api": "npm run dev --workspace=api"
   },
-  "keywords": [
-    "pigs-rent",
-    "agronegocio",
-    "luanda",
-    "react",
-    "node"
+  "workspaces": [
+    "web",
+    "api"
   ],
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^8.2.2"
   }
 }

@@ -1,150 +1,175 @@
-import { useState } from 'react';
-import { 
-  PlusCircle, 
-  FileSpreadsheet, 
-  ListFilter, 
-  ChevronRight,
-  ClipboardList,
-  CheckCircle2
-} from 'lucide-react';
-
-// Imports alinhados com a estrutura src/ e nomes de ficheiros reais
-import { LoteForm } from '../forms/LoteForm';
-import { ExcelImporter } from '../forms/ExcelImporter'; // 1 "L" conforme o ficheiro
-import { excelMapper } from '../lib/excelMapper';
-import { dataService } from '../lib/dataService';
-import { Lote } from '../types/lote';
-
-type TabType = 'manual' | 'import' | 'lista';
+import { useState, useEffect } from 'react';
+import { db } from '../lib/firebase';
+import { collection, addDoc, query, onSnapshot, orderBy } from 'firebase/firestore';
+import { FileUp, FileDown, FileText, ClipboardList } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 export default function LotesPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('manual');
-  const [dadosParaProcessar, setDadosParaProcessar] = useState<Lote[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [sucesso, setSucesso] = useState(false);
+  const [lotes, setLotes] = useState<any[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
 
-  const handleImportacaoConcluida = (dados: any[]) => {
-    const mapeados = excelMapper.mapLotes(dados);
-    setDadosParaProcessar(mapeados);
-    setActiveTab('lista');
+  // 1. ESCUTAR DADOS DO FIREBASE EM TEMPO REAL
+  useEffect(() => {
+    const q = query(collection(db, "lotes"), orderBy("dataEntrada", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setLotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. IMPORTAR DO EXCEL ( SHEETJS )
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        for (const item of data as any[]) {
+          await addDoc(collection(db, "lotes"), {
+            numero: item.numero || item.lote || 'Sem ID',
+            quantidade: Number(item.quantidade) || 0,
+            peso: Number(item.peso) || 0,
+            dataEntrada: new Date().toISOString(),
+            status: 'Ativo'
+          });
+        }
+        alert("Importação de lotes concluída!");
+      } catch (error) {
+        console.error("Erro na importação:", error);
+        alert("Erro ao ler o ficheiro Excel.");
+      } finally {
+        setIsImporting(false);
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
-  const confirmarGravacaoLote = async () => {
-    setLoading(true);
-    try {
-      await dataService.saveBulk('lotes', dadosParaProcessar);
-      setSucesso(true);
-      setDadosParaProcessar([]);
-      setTimeout(() => {
-        setSucesso(false);
-        setActiveTab('manual');
-      }, 3000);
-    } catch (error) {
-      console.error("Erro ao gravar lotes em massa:", error);
-    } finally {
-      setLoading(false);
-    }
+  // 3. EXPORTAR PARA EXCEL
+  const exportToExcel = () => {
+    const dataToExport = lotes.map(l => ({
+      Lote: l.numero,
+      Quantidade: l.quantidade,
+      Peso_KG: l.peso,
+      Data_Entrada: new Date(l.dataEntrada).toLocaleDateString('pt-PT'),
+      Status: l.status
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Lotes Pigs Rent");
+    XLSX.writeFile(wb, `PigsRent_Lotes_${new Date().getTime()}.xlsx`);
+  };
+
+  // 4. EXPORTAR PARA PDF ( JSPDF + AUTOTABLE )
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    
+    // Cabeçalho do PDF
+    doc.setFontSize(18);
+    doc.setTextColor(15, 23, 42); // Slate-900
+    doc.text("PIGS RENT - Inventário de Lotes", 14, 20);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Relatório gerado em: ${new Date().toLocaleString('pt-PT')}`, 14, 28);
+
+    (doc as any).autoTable({
+      startY: 35,
+      head: [['Nº Lote', 'Qtd (cab)', 'Peso Inicial (kg)', 'Data Entrada']],
+      body: lotes.map(l => [
+        l.numero, 
+        l.quantidade, 
+        l.peso, 
+        new Date(l.dataEntrada).toLocaleDateString('pt-PT')
+      ]),
+      headStyles: { fillColor: [8, 145, 178] }, // Cyan-600
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { top: 35 }
+    });
+
+    doc.save("PigsRent_Relatorio_Lotes.pdf");
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-      <header className="max-w-6xl mx-auto mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
-          <ClipboardList className="text-cyan-600" /> Gestão de Lotes
-        </h1>
-        <p className="text-slate-500 mt-2">Registe a entrada de novos animais para a Fazenda Quanza.</p>
-      </header>
-
-      <main className="max-w-6xl mx-auto">
-        {/* Navegação entre Abas */}
-        <div className="flex flex-wrap gap-2 mb-8 bg-slate-200/50 p-1 rounded-2xl w-fit">
-          <button
-            onClick={() => setActiveTab('manual')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-              activeTab === 'manual' ? 'bg-white text-cyan-600 shadow-sm' : 'text-slate-500'
-            }`}
-          >
-            <PlusCircle size={18} /> Registo Manual
-          </button>
-          <button
-            onClick={() => setActiveTab('import')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-              activeTab === 'import' ? 'bg-white text-cyan-600 shadow-sm' : 'text-slate-500'
-            }`}
-          >
-            <FileSpreadsheet size={18} /> Importar Excel
-          </button>
-          {dadosParaProcessar.length > 0 && (
-            <button
-              onClick={() => setActiveTab('lista')}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-                activeTab === 'lista' ? 'bg-white text-orange-600 shadow-sm' : 'text-orange-500'
-              }`}
-            >
-              <ListFilter size={18} /> Validar ({dadosParaProcessar.length})
-            </button>
-          )}
+    <div className="space-y-6">
+      {/* Top Bar */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-cyan-600 text-white rounded-lg shadow-lg shadow-cyan-200">
+            <ClipboardList size={24} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Gestão de Lotes</h1>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Controlo de Inventário Local</p>
+          </div>
         </div>
 
-        {/* Conteúdo das Abas */}
-        <div className="transition-all duration-300">
-          {activeTab === 'manual' && <LoteForm />}
+        <div className="flex flex-wrap gap-2">
+          <label className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer shadow-sm transition-all active:scale-95">
+            <FileUp size={16} className="text-cyan-600" />
+            {isImporting ? "A processar..." : "Importar Excel"}
+            <input type="file" accept=".xlsx, .xls" onChange={handleImportExcel} className="hidden" />
+          </label>
 
-          {activeTab === 'import' && (
-            <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-200 text-center">
-              {/* CORRIGIDO: Agora usa o nome correto com 1 "L" */}
-              <ExcelImporter onImport={handleImportacaoConcluida} />
-            </div>
-          )}
+          <button onClick={exportToExcel} className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 shadow-sm transition-all active:scale-95">
+            <FileDown size={16} className="text-emerald-600" /> Excel
+          </button>
 
-          {activeTab === 'lista' && (
-            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100">
-              <div className="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-bold text-slate-700">Pré-visualização da Importação</h3>
-                <button 
-                  onClick={confirmarGravacaoLote}
-                  disabled={loading}
-                  className="bg-cyan-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-cyan-700 transition-all flex items-center gap-2"
-                >
-                  {loading ? 'A processar...' : 'Confirmar e Gravar'}
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-                    <tr>
-                      <th className="px-6 py-4">Código</th>
-                      <th className="px-6 py-4">Fornecedor</th>
-                      <th className="px-6 py-4">Peso Entrada</th>
-                      <th className="px-6 py-4 text-right">Custo Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {dadosParaProcessar.map((lote: Lote, i) => (
-                      <tr key={i} className="text-sm text-slate-600 hover:bg-slate-50">
-                        <td className="px-6 py-4 font-bold text-slate-800">{lote.codigo}</td>
-                        <td className="px-6 py-4">{lote.fornecedor}</td>
-                        <td className="px-6 py-4">{lote.peso_chegada_kg} kg</td>
-                        <td className="px-6 py-4 text-right font-mono text-emerald-600 font-bold">
-                          {lote.custo_aquisicao_total_kz?.toLocaleString()} Kz
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {sucesso && (
-            <div className="mt-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl flex items-center gap-3 animate-bounce">
-              <CheckCircle2 /> Dados importados com sucesso para o Firestore!
-            </div>
-          )}
+          <button onClick={exportToPDF} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-800 shadow-lg transition-all active:scale-95">
+            <FileText size={16} className="text-red-400" /> PDF
+          </button>
         </div>
-      </main>
+      </div>
+
+      {/* Tabela de Dados */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100">
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Identificação</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Quantidade</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Peso Médio</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Data Registo</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 text-sm">
+              {lotes.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                    Aguardando dados ou importação de ficheiro...
+                  </td>
+                </tr>
+              ) : (
+                lotes.map((lote) => (
+                  <tr key={lote.id} className="hover:bg-slate-50/80 transition-colors group">
+                    <td className="px-6 py-4 font-bold text-slate-700">{lote.numero}</td>
+                    <td className="px-6 py-4 text-slate-600">{lote.quantidade} cabeças</td>
+                    <td className="px-6 py-4 text-slate-600">{lote.peso} kg</td>
+                    <td className="px-6 py-4 text-slate-400">{new Date(lote.dataEntrada).toLocaleDateString('pt-PT')}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700 uppercase">
+                        {lote.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
