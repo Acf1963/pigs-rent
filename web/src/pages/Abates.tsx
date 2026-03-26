@@ -1,163 +1,189 @@
-import { useState, useEffect } from 'react'; 
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  deleteDoc, 
-  doc 
-} from 'firebase/firestore'; 
+import { useState } from 'react';
 import { db } from '../lib/firebase';
-import { 
-  Plus, 
-  FileText, 
-  Trash2, 
-  Gavel, 
-  TrendingUp, 
-  Search 
-} from 'lucide-react'; 
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { collection, addDoc, writeBatch, doc } from 'firebase/firestore';
+// Removido o Calendar que não estava a ser usado
+import { Scale, Save, FileSpreadsheet, Upload, ClipboardCheck, ShoppingBag, Utensils } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
-interface Abate {
-  id: string;
-  lote: string;
-  quantidade: number;
-  pesoVivo: number;
-  pesoCarcaca: number;
-  rendimento: number;
-  cliente: string;
+interface RegistroAbate {
+  id?: string;
+  loteId: string;
+  animalId?: string;
   dataAbate: string;
+  pesoVivoKg: number;
+  pesoCarcaçaKg: number;
+  rendimentoPercentual: number;
+  classificacaoGordura: '1' | '2' | '3' | '4' | '5';
+  destino: 'VENDA_DIRETA' | 'PROCESSAMENTO' | 'CONSUMO';
+  custoAbateKz: number;
+  observacoes?: string;
 }
 
-export default function Abates() {
-  const [abates, setAbates] = useState<Abate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+export default function AbatesPage() {
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState<Omit<RegistroAbate, 'id' | 'rendimentoPercentual'>>({
+    loteId: '',
+    animalId: '',
+    dataAbate: new Date().toISOString().split('T')[0],
+    pesoVivoKg: 0,
+    pesoCarcaçaKg: 0,
+    classificacaoGordura: '3',
+    destino: 'VENDA_DIRETA',
+    custoAbateKz: 0,
+    observacoes: ''
+  });
 
-  useEffect(() => {
-    const q = query(collection(db, 'abates'), orderBy('dataAbate', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const docs: Abate[] = [];
-      querySnapshot.forEach((doc) => {
-        docs.push({ id: doc.id, ...doc.data() } as Abate);
-      });
-      setAbates(docs);
-      setLoading(false);
-    });
+  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    return () => unsubscribe();
-  }, []);
-
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Tem certeza que deseja excluir este registro de abate?')) {
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
       try {
-        await deleteDoc(doc(db, 'abates', id));
-      } catch (error) {
-        console.error("Erro ao excluir documento: ", error);
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+
+        const batch = writeBatch(db);
+        data.forEach((item) => {
+          const rendimento = ((item.pesoCarcaçaKg / item.pesoVivoKg) * 100).toFixed(2);
+          const newDocRef = doc(collection(db, 'abates'));
+          batch.set(newDocRef, { ...item, rendimentoPercentual: Number(rendimento) });
+        });
+
+        await batch.commit();
+        alert(`${data.length} abates importados para a Fazenda Quanza!`);
+      } catch (err) {
+        alert("Erro no ficheiro Excel.");
+      } finally {
+        setLoading(false);
       }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const rendimento = ((formData.pesoCarcaçaKg / formData.pesoVivoKg) * 100).toFixed(2);
+      await addDoc(collection(db, 'abates'), {
+        ...formData,
+        rendimentoPercentual: Number(rendimento)
+      });
+      alert('Abate registado com sucesso!');
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const filteredAbates = abates.filter(abate => 
-    abate.lote.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    abate.cliente.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
-    <div className="p-6 bg-slate-50 min-h-screen font-sans">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+    <div className="max-w-5xl mx-auto p-4 md:p-6 font-sans text-slate-900">
+      
+      {/* Ações Excel */}
+      <div className="mb-6 flex flex-wrap gap-4">
+        <label className="flex items-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl cursor-pointer transition-all shadow-lg font-black text-xs uppercase tracking-widest">
+          <FileSpreadsheet size={18} />
+          Importar Abates
+          <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleExcelImport} />
+        </label>
+        <button className="flex items-center gap-3 bg-slate-800 text-slate-300 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 border border-slate-700">
+          <Upload size={18} />
+          Modelo XLSX
+        </button>
+      </div>
+
+      <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden border border-slate-100">
+        <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-              <Gavel className="w-10 h-10 text-orange-600" />
-              Controlo de Abates
-            </h1>
-            <p className="text-slate-500 text-sm mt-1 font-medium">Histórico de rendimento de carcaça - Pigs Rent</p>
+            <h2 className="text-2xl font-black italic flex items-center gap-3 tracking-tighter text-cyan-400">
+              <Utensils /> <span className="text-white uppercase">Registo de Abate</span>
+            </h2>
+            <p className="text-slate-400 text-[10px] uppercase tracking-[0.2em] mt-1 font-bold">Fazenda Quanza — Luanda</p>
           </div>
-          <button className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-lg shadow-orange-100 font-bold text-sm">
-            <Plus className="w-5 h-5" />
-            Novo Registro
+          <ClipboardCheck className="text-emerald-500/30" size={32} />
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">ID Lote</label>
+            <input required className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-cyan-500 font-bold"
+              onChange={e => setFormData({...formData, loteId: e.target.value})} />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Brinco</label>
+            <input className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-cyan-500 font-bold text-slate-700"
+              onChange={e => setFormData({...formData, animalId: e.target.value})} />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Data do Abate</label>
+            <input type="date" value={formData.dataAbate} className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700"
+              onChange={e => setFormData({...formData, dataAbate: e.target.value})} />
+          </div>
+
+          <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200">
+            <label className="text-[10px] font-black uppercase text-slate-500 mb-2 flex items-center gap-2">
+              <Scale size={14} className="text-cyan-500" /> Peso Vivo (kg)
+            </label>
+            <input type="number" step="0.1" required className="w-full bg-white border-none rounded-xl p-3 font-black text-slate-700 focus:ring-2 focus:ring-cyan-500"
+              onChange={e => setFormData({...formData, pesoVivoKg: Number(e.target.value)})} />
+          </div>
+
+          <div className="bg-cyan-50 p-6 rounded-[2rem] border border-cyan-100">
+            <label className="text-[10px] font-black uppercase text-cyan-700 mb-2 flex items-center gap-2">
+              <Scale size={14} /> Peso Carcaça (kg)
+            </label>
+            <input type="number" step="0.1" required className="w-full bg-white border-none rounded-xl p-3 font-black text-cyan-700 focus:ring-2 focus:ring-cyan-500"
+              onChange={e => setFormData({...formData, pesoCarcaçaKg: Number(e.target.value)})} />
+          </div>
+
+          <div className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100">
+            <label className="text-[10px] font-black uppercase text-emerald-600 mb-2 block">Custo Abate (Kz)</label>
+            <input type="number" required className="w-full bg-white border-none rounded-xl p-3 font-black text-emerald-700 focus:ring-2 focus:ring-emerald-500"
+              onChange={e => setFormData({...formData, custoAbateKz: Number(e.target.value)})} />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-2 block">Acabamento</label>
+            <select className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-cyan-500 font-bold text-slate-700"
+              value={formData.classificacaoGordura}
+              onChange={e => setFormData({...formData, classificacaoGordura: e.target.value as any})}>
+              <option value="3">3 - Ideal</option>
+              <option value="1">1 - Magro</option>
+              <option value="5">5 - Gordo</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-2 space-y-1">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-2 flex items-center gap-2">
+              <ShoppingBag size={12} /> Destino da Carne
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['VENDA_DIRETA', 'PROCESSAMENTO', 'CONSUMO'] as const).map((dest) => (
+                <button
+                  key={dest}
+                  type="button"
+                  onClick={() => setFormData({...formData, destino: dest})}
+                  className={`p-3 rounded-xl font-black text-[9px] tracking-widest transition-all ${
+                    formData.destino === dest ? 'bg-slate-900 text-cyan-400 shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                  }`}
+                >
+                  {dest.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button type="submit" disabled={loading}
+            className="md:col-span-3 bg-cyan-500 hover:bg-cyan-600 text-white font-black py-6 rounded-3xl transition-all shadow-xl shadow-cyan-900/10 flex items-center justify-center gap-3 uppercase text-xs tracking-widest mt-4">
+            {loading ? 'A Gravar...' : <><Save size={20} /> Finalizar Abate</>}
           </button>
-        </div>
-
-        {/* Barra de Busca e Filtros */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row gap-4 items-center">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Buscar por lote ou cliente..."
-              className="w-full pl-12 pr-4 py-3 border border-slate-100 rounded-2xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all text-slate-600 font-medium"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2 w-full md:w-auto">
-            <button className="flex-1 md:flex-none bg-slate-800 text-white px-6 py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-900 transition-colors font-bold text-sm">
-              <FileText className="w-5 h-5" />
-              Exportar PDF
-            </button>
-          </div>
-        </div>
-
-        {/* Tabela de Abates */}
-        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-100">
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Data</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Lote</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Qtd</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Peso Vivo (kg)</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Carcaça (kg)</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rendimento</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="px-8 py-12 text-center text-slate-400 italic">Carregando dados do Firebase...</td>
-                  </tr>
-                ) : filteredAbates.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-8 py-12 text-center text-slate-400 italic">Nenhum registro de abate encontrado.</td>
-                  </tr>
-                ) : (
-                  filteredAbates.map((abate) => (
-                    <tr key={abate.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-8 py-5 text-sm font-medium text-slate-500">
-                        {format(new Date(abate.dataAbate), 'dd/MM/yyyy', { locale: ptBR })}
-                      </td>
-                      <td className="px-8 py-5 text-sm font-bold text-slate-800">{abate.lote}</td>
-                      <td className="px-8 py-5 text-sm text-slate-600 font-semibold">{abate.quantidade}</td>
-                      <td className="px-8 py-5 text-sm text-slate-600">{abate.pesoVivo.toLocaleString()} kg</td>
-                      <td className="px-8 py-5 text-sm text-slate-600 font-bold">{abate.pesoCarcaca.toLocaleString()} kg</td>
-                      <td className="px-8 py-5 text-sm">
-                        <span className="flex items-center gap-1 text-emerald-600 font-black bg-emerald-50 px-3 py-1 rounded-lg w-fit">
-                          <TrendingUp className="w-4 h-4" />
-                          {abate.rendimento}%
-                        </span>
-                      </td>
-                      <td className="px-8 py-5 text-sm text-center">
-                        <button 
-                          onClick={() => handleDelete(abate.id)}
-                          className="text-slate-300 hover:text-red-500 transition-colors"
-                          title="Eliminar Registro"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        </form>
       </div>
     </div>
   );
