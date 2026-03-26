@@ -7,9 +7,12 @@ const firebaseConfig = {
   projectId: "pigs-rent",
   storageBucket: "pigs-rent.firebasestorage.app",
   messagingSenderId: "427921371989",
-  appId: "1:427921371989:web:9534b08719985458a875dc"
+  appId: "1:427921371989:web:379a0bbe26312fc6a875dc",
+  measurementId: "G-4PF5V34ZGK"
 };
 
+// Inicializar o Firebase
 const app = initializeApp(firebaseConfig);
+
+// Inicializar o Firestore (Banco de Dados)
 export const db = getFirestore(app);
-export default app;

@@ -1,108 +1,109 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  Gavel, 
-  Syringe, 
-  Pizza, 
-  DollarSign,
-  Layers 
-} from 'lucide-react'; // 'ClipboardList' removido para limpar o erro 6133
+  Database, 
+  ShieldCheck, 
+  Beef, 
+  ShoppingCart, 
+  Settings, 
+  Menu, 
+  X 
+} from 'lucide-react';
+import { useState } from 'react';
 
-// Páginas do Ecossistema Pigs Rent - Fazenda Quanza
-import DashboardPage from './pages/Dashboard';
+// Importação das Páginas
+import Dashboard from './pages/Dashboard';
 import LotesPage from './pages/Lotes';
-import AbatesPage from './pages/Abates';
 import SaudePage from './pages/Saude';
-import AlimentacaoPage from './pages/Alimentacao';
-import ComercialPage from './pages/Comercial';
+import AbatesPage from './pages/Abates';
+import VendasPage from './pages/Vendas';
 
-function Sidebar() {
+function Navigation() {
+  const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
 
   const menuItems = [
-    { path: '/', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-    { path: '/lotes', label: 'Suínos & Bovinos', icon: <Layers size={20} /> },
-    { path: '/abates', label: 'Abates & Vendas', icon: <Gavel size={20} /> },
-    { path: '/saude', label: 'Maneio Sanitário', icon: <Syringe size={20} /> },
-    { path: '/alimentacao', label: 'Nutrição', icon: <Pizza size={20} /> },
-    { path: '/comercial', label: 'Fecho de Contas', icon: <DollarSign size={20} /> },
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/lotes', label: 'Gestão de Lotes', icon: Database },
+    { path: '/saude', label: 'Maneio Sanitário', icon: ShieldCheck },
+    { path: '/abates', label: 'Abates', icon: Beef },
+    { path: '/vendas', label: 'Vendas', icon: ShoppingCart },
   ];
 
-  return (
-    <aside className="w-64 bg-slate-900 text-white p-6 shadow-xl flex flex-col h-full shrink-0">
-      <div className="mb-10 px-2">
-        <h1 className="text-2xl font-black text-cyan-400 italic tracking-tighter">Pigs Rent</h1>
-        <p className="text-[9px] text-slate-400 uppercase tracking-[0.2em] mt-1 font-bold">
-          Pecuária Integrada — Fazenda Quanza
-        </p>
-      </div>
-      
-      <nav className="space-y-1 flex-1">
-        {menuItems.map((item) => {
-          const isActive = location.pathname === item.path;
-          return (
-            <Link 
-              key={item.path}
-              to={item.path} 
-              className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
-                isActive 
-                  ? 'bg-cyan-600/20 text-cyan-400 border-l-4 border-cyan-400 font-bold' 
-                  : 'hover:bg-slate-800 text-slate-400 hover:text-slate-100'
-              }`}
-            >
-              <span className={isActive ? 'text-cyan-400' : 'text-slate-500'}>
-                {item.icon}
-              </span>
-              <span className="text-sm">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+  const isActive = (path: string) => location.pathname === path;
 
-      <div className="mt-auto pt-6 border-t border-slate-800 text-center">
-        <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">
-          Pigs Rent © 2026
-        </p>
-      </div>
-    </aside>
+  return (
+    <>
+      {/* Botão Mobile */}
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="lg:hidden fixed top-4 right-4 z-50 p-2 bg-slate-900 text-white rounded-xl shadow-lg"
+      >
+        {isOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Sidebar */}
+      <nav className={`
+        fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 text-slate-400 transform transition-transform duration-300 ease-in-out border-r border-slate-800
+        ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-12">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+              <Beef size={24} />
+            </div>
+            <div>
+              <h1 className="text-white font-black text-xl tracking-tighter leading-none">FAZENDA</h1>
+              <p className="text-[10px] font-bold text-indigo-500 tracking-[0.3em] uppercase">Quanza</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {menuItems.map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setIsOpen(false)}
+                className={`
+                  flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all
+                  ${isActive(item.path) 
+                    ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-500/20' 
+                    : 'hover:bg-slate-800 hover:text-slate-200'}
+                `}
+              >
+                <item.icon size={20} />
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div className="absolute bottom-0 left-0 w-full p-8">
+          <button className="flex items-center gap-3 px-4 py-3 w-full rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all">
+            <Settings size={20} />
+            Configurações
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }
 
 export default function App() {
   return (
-    <Router 
-      future={{ 
-        v7_startTransition: true, 
-        v7_relativeSplatPath: true 
-      }}
-    >
-      <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
-        <Sidebar />
+    <Router>
+      <div className="flex min-h-screen bg-slate-50">
+        <Navigation />
         
-        <main className="flex-1 flex flex-col h-full overflow-hidden">
-          <header className="bg-white border-b border-slate-200 h-16 flex justify-between items-center px-8 shrink-0 shadow-sm z-10">
-            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-              Painel Operacional — Luanda, Angola
-            </h2>
-            <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
-                Suínos & Bovinos
-              </span>
-            </div>
-          </header>
-
-          <div className="flex-1 overflow-y-auto p-8 bg-[#f8fafc]">
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/lotes" element={<LotesPage />} />
-              <Route path="/abates" element={<AbatesPage />} />
-              <Route path="/saude" element={<SaudePage />} />
-              <Route path="/alimentacao" element={<AlimentacaoPage />} />
-              <Route path="/comercial" element={<ComercialPage />} />
-              <Route path="*" element={<DashboardPage />} />
-            </Routes>
-          </div>
+        {/* Main Content Area */}
+        <main className="flex-1 lg:ml-72 min-h-screen relative">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/lotes" element={<LotesPage />} />
+            <Route path="/saude" element={<SaudePage />} />
+            <Route path="/abates" element={<AbatesPage />} />
+            <Route path="/vendas" element={<VendasPage />} />
+          </Routes>
         </main>
       </div>
     </Router>
