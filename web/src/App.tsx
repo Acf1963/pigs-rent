@@ -17,6 +17,7 @@ import LotesPage from './pages/Lotes';
 import SaudePage from './pages/Saude';
 import AbatesPage from './pages/Abates';
 import VendasPage from './pages/Vendas';
+import Sidebar from './components/sidebar';
 
 function Navigation() {
   const [isOpen, setIsOpen] = useState(false);

@@ -1,61 +1,74 @@
+import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
+  ClipboardList, 
   Package, 
-  Gavel, 
-  Syringe, 
-  Pizza, 
-  DollarSign, 
-  LogOut 
+  ShoppingCart, 
+  Settings, 
+  LogOut,
+  ChevronRight
 } from 'lucide-react';
 
-interface SidebarProps {
-  activePage: string;
-  setActivePage: (page: string) => void;
-}
+export default function Sidebar() {
+  const location = useLocation();
 
-export function Sidebar({ activePage, setActivePage }: SidebarProps) {
-  // Lista de navegação atualizada para o Pigs Rent
   const menuItems = [
-    { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { name: 'lotes', label: 'Gestão de Lotes', icon: Package },
-    { name: 'abates', label: 'Abates', icon: Gavel },
-    { name: 'saude', label: 'Saúde Animal', icon: Syringe },
-    { name: 'alimentacao', label: 'Alimentação', icon: Pizza }, // No lugar de Rendas
-    { name: 'comercial', label: 'Comercial', icon: DollarSign }, // Novo item Comercial
+    { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/lotes', icon: Package, label: 'Gestão de Lotes' },
+    { path: '/maneio', icon: ClipboardList, label: 'Maneio Sanitário' },
+    { path: '/vendas', icon: ShoppingCart, label: 'Vendas e Saídas' },
+    { path: '/configuracoes', icon: Settings, label: 'Configurações' },
   ];
 
   return (
-    <aside className="w-72 min-h-screen bg-[#0f172a] text-slate-300 p-6 flex flex-col shadow-2xl">
-      <div className="mb-12 px-2">
-        <h1 className="text-3xl font-black text-white italic tracking-tighter">
-          Pigs <span className="text-cyan-400">Rent</span>
-        </h1>
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1">
-          Gestão de Suinicultura
-        </p>
+    <aside className="w-64 bg-[#1a1d26] border-r border-slate-800 flex flex-col h-screen shrink-0">
+      
+      <div className="p-8 flex flex-col items-center">
+        <div className="mb-4">
+          <img 
+            src="/img/lg_pgs01.png" 
+            alt="Matadouro Gest Pro" 
+            className="w-32 h-auto object-contain"
+          />
+        </div>
+        
+        <div className="text-center">
+          <h2 className="text-white font-black text-xs uppercase tracking-[0.2em]">
+            Matadouro Gest Pro
+          </h2>
+          <p className="text-red-600 text-[9px] font-bold uppercase italic mt-1">
+            Gestão de Alta Performance
+          </p>
+        </div>
       </div>
 
-      <nav className="flex-1 space-y-2">
-        {menuItems.map((item) => (
-          <button
-            key={item.name}
-            onClick={() => setActivePage(item.name)}
-            className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 ${
-              activePage === item.name 
-                ? 'bg-cyan-950/50 text-white font-bold shadow-lg border-l-4 border-cyan-400' 
-                : 'hover:bg-slate-900 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <item.icon size={22} className={activePage === item.name ? 'text-cyan-400' : 'text-slate-500'} />
-            <span className="text-sm tracking-tight">{item.label}</span>
-          </button>
-        ))}
+      <nav className="flex-1 px-4 mt-2 space-y-2">
+        {menuItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`flex items-center justify-between p-3 rounded-2xl transition-all group ${
+                isActive 
+                ? 'bg-red-700/10 border border-red-700/20 text-red-500 shadow-lg shadow-red-900/5' 
+                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <item.icon size={20} className={isActive ? 'text-red-500' : 'group-hover:text-slate-200'} />
+                <span className="text-xs font-black uppercase tracking-wider">{item.label}</span>
+              </div>
+              {isActive && <ChevronRight size={14} className="animate-pulse" />}
+            </Link>
+          );
+        })}
       </nav>
 
-      <div className="pt-6 border-t border-slate-800/50 mt-6">
-        <button className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-red-400 hover:bg-red-500/10 transition-colors group">
-          <LogOut size={22} className="group-hover:translate-x-1 transition-transform" />
-          <span className="text-sm font-bold">Sair do Sistema</span>
+      <div className="p-4 border-t border-slate-800">
+        <button className="flex items-center gap-3 w-full p-3 rounded-2xl text-slate-500 hover:text-red-400 hover:bg-red-500/5 transition-all group">
+          <LogOut size={20} />
+          <span className="text-xs font-black uppercase tracking-wider">Sair do Sistema</span>
         </button>
       </div>
     </aside>
