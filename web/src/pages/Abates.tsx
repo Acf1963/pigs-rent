@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, writeBatch, doc, onSnapshot, query, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
-import { Scale, FileSpreadsheet, Trash2, Edit3, Search } from 'lucide-react';
+import { FileSpreadsheet, Trash2, Edit3, Search, Check, Activity } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function AbatesPage() {
@@ -17,7 +17,6 @@ export default function AbatesPage() {
     rendimento: 0
   });
 
-  // Converte datas do Excel (ex: 46096) para formato legível
   const formatarDataExcel = (celula: any) => {
     if (!celula) return new Date().toISOString().split('T')[0];
     if (celula instanceof Date) return celula.toISOString().split('T')[0];
@@ -29,20 +28,16 @@ export default function AbatesPage() {
     return String(celula);
   };
 
-  // Limpa "Kg", espaços e converte vírgulas para evitar o erro NaN
   const parseNumeroSeguro = (valor: any): number => {
     if (valor === null || valor === undefined || valor === '') return 0;
     if (typeof valor === 'number') return valor;
-    const limpo = String(valor)
-      .replace(/\s/g, '')
-      .replace(/[a-zA-Z]/g, '')
-      .replace(',', '.');
+    const limpo = String(valor).replace(/\s/g, '').replace(/[a-zA-Z]/g, '').replace(',', '.');
     const num = parseFloat(limpo);
     return isNaN(num) ? 0 : num;
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'abates'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'abates'), orderBy('dataAbate', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setAbates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
@@ -58,22 +53,13 @@ export default function AbatesPage() {
     reader.onload = async (evt) => {
       try {
         const workbook = XLSX.read(evt.target?.result, { type: 'array', cellDates: true });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet) as any[];
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]) as any[];
         const batch = writeBatch(db);
 
         json.forEach((row: any) => {
           const newDocRef = doc(collection(db, 'abates'));
-          
-          // MAPEAMENTO ROBUSTO: Procura exatamente as colunas da imagem
-          // Tentamos variações com e sem espaços para garantir a captura
-          const pVivo = parseNumeroSeguro(
-            row['pesoVivoK'] || row.pesoVivoK || row.pesoVivo || row.Peso
-          );
-          
-          const pCarcaca = parseNumeroSeguro(
-            row['CarcacaKg'] || row.CarcacaKg || row.pesoCarcaca || row.Carcaca
-          );
+          const pVivo = parseNumeroSeguro(row['pesoVivoK'] || row.pesoVivo || row.Peso);
+          const pCarcaca = parseNumeroSeguro(row['CarcacaKg'] || row.pesoCarcaca || row.Carcaca);
           
           batch.set(newDocRef, {
             loteId: String(row.loteId || row.Lote || 'SEM LOTE').trim().toUpperCase(),
@@ -84,11 +70,10 @@ export default function AbatesPage() {
             createdAt: new Date().toISOString()
           });
         });
-
         await batch.commit();
-        alert("Importação de Abates da Fazenda Quanza concluída!");
+        alert("Importação concluída!");
       } catch (err) {
-        alert("Erro técnico ao ler o Excel. Verifique se o ficheiro está aberto.");
+        alert("Erro ao ler o Excel.");
       } finally {
         setLoading(false);
         e.target.value = '';
@@ -115,71 +100,75 @@ export default function AbatesPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col p-6 text-slate-900 overflow-hidden bg-slate-50 font-sans">
-      <div className="flex justify-between items-center mb-6 shrink-0">
-        <h1 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
-          <Scale className="text-red-600" size={28} /> Registo de Abates
-        </h1>
-        <label className={`flex items-center gap-2 bg-red-600 text-white px-6 py-3 rounded-2xl cursor-pointer font-bold text-xs uppercase hover:bg-red-700 transition-all shadow-lg ${loading ? 'opacity-50' : ''}`}>
-          <FileSpreadsheet size={18} /> {loading ? 'A IMPORTAR...' : 'IMPORTAR EXCEL'}
+    <div className="p-8 max-w-7xl mx-auto space-y-8 bg-[#0f1117] min-h-screen text-slate-100">
+      
+      {/* HEADER */}
+      <div className="flex justify-between items-end border-b border-slate-800 pb-6">
+        <div>
+          <h1 className="text-3xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+            <Activity className="text-cyan-500" size={32} /> Registo de Abates
+          </h1>
+          <p className="text-slate-400 text-sm mt-1 uppercase tracking-widest font-bold italic">Rendimento de Carcaça e Performance</p>
+        </div>
+        <label className="bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 px-6 py-2 rounded-xl cursor-pointer font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg shadow-cyan-900/10">
+          <FileSpreadsheet size={18} /> {loading ? 'A PROCESSAR...' : 'IMPORTAR EXCEL'}
           <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleExcelImport} disabled={loading} />
         </label>
       </div>
 
-      {/* FORMULÁRIO DE ENTRADA MANUAL */}
-      <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 mb-6 shrink-0 p-6">
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Lote</label>
-            <input required className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold uppercase" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
+      {/* FORMULÁRIO CYAN */}
+      <div className="bg-[#1a1d26] rounded-3xl border border-slate-800 p-6 shadow-2xl overflow-hidden relative group">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 relative z-10">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Lote</label>
+            <input required className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none transition-all" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Peso Vivo (Kg)</label>
-            <input type="number" step="0.01" className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.pesoVivo} onChange={e => setFormData({...formData, pesoVivo: Number(e.target.value)})} />
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Peso Vivo (kg)</label>
+            <input type="number" step="0.01" className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.pesoVivo} onChange={e => setFormData({...formData, pesoVivo: Number(e.target.value)})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Peso Carcaça (Kg)</label>
-            <input type="number" step="0.01" className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.pesoCarcaca} onChange={e => setFormData({...formData, pesoCarcaca: Number(e.target.value)})} />
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Peso Carcaça (kg)</label>
+            <input type="number" step="0.01" className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.pesoCarcaca} onChange={e => setFormData({...formData, pesoCarcaca: Number(e.target.value)})} />
           </div>
-          <button type="submit" disabled={loading} className="bg-red-600 text-white font-black rounded-xl uppercase text-xs h-[52px] mt-auto hover:bg-red-700 shadow-md">
-            {editingId ? 'ATUALIZAR' : 'GRAVAR'}
+          <button type="submit" className="bg-cyan-600 text-white font-black rounded-xl uppercase text-xs tracking-widest h-[46px] mt-auto hover:bg-cyan-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-900/20">
+            <Check size={18} /> {editingId ? 'ATUALIZAR' : 'GRAVAR'}
           </button>
         </form>
       </div>
 
-      {/* TABELA DE RESULTADOS */}
-      <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2 shrink-0 italic text-slate-500 font-bold text-xs uppercase">
-          <Search size={16} /> Listagem de Rendimento
+      {/* TABELA DARK */}
+      <div className="bg-[#1a1d26] rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div className="p-6 border-b border-slate-800 bg-slate-800/20 flex items-center gap-2 font-black text-xs uppercase text-slate-400 tracking-widest">
+          <Search size={16} className="text-cyan-500" /> Histórico de Rendimento
         </div>
-        
-        <div className="flex-1 overflow-auto px-4">
-          <table className="w-full text-left border-separate border-spacing-y-2">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="text-[10px] font-black uppercase text-slate-400 italic text-center">
-                <th className="p-4 text-left">Lote</th>
-                <th className="p-4">Data</th>
-                <th className="p-4">Peso Vivo</th>
-                <th className="p-4">Carcaça</th>
-                <th className="p-4">Rendimento</th>
-                <th className="p-4">Ações</th>
+              <tr className="text-[10px] font-black uppercase text-slate-500 tracking-widest border-b border-slate-800 bg-slate-800/10">
+                <th className="p-6">Lote</th>
+                <th className="p-6">Data</th>
+                <th className="p-6 text-right">Peso Vivo</th>
+                <th className="p-6 text-right">Carcaça</th>
+                <th className="p-6 text-center">Rendimento</th>
+                <th className="p-6 text-center">Ações</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-800/50">
               {abates.map((a) => (
-                <tr key={a.id} className="bg-white border border-slate-50 shadow-sm rounded-xl text-center">
-                  <td className="p-4 font-black text-red-600 text-left">{a.loteId}</td>
-                  <td className="p-4 text-sm font-bold text-slate-600">{a.dataAbate}</td>
-                  <td className="p-4 font-bold">{a.pesoVivo.toFixed(1)} Kg</td>
-                  <td className="p-4 font-bold">{a.pesoCarcaca.toFixed(1)} Kg</td>
-                  <td className="p-4">
-                    <span className="bg-red-50 text-red-700 px-3 py-1 rounded-lg text-[10px] font-black uppercase border border-red-100">
+                <tr key={a.id} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="p-6 font-black text-cyan-500 uppercase text-xs">{a.loteId}</td>
+                  <td className="p-6 text-xs text-slate-400 font-bold">{a.dataAbate}</td>
+                  <td className="p-6 text-right font-mono text-white text-xs">{a.pesoVivo.toFixed(1)} kg</td>
+                  <td className="p-6 text-right font-mono text-white text-xs">{a.pesoCarcaca.toFixed(1)} kg</td>
+                  <td className="p-6 text-center">
+                    <span className="bg-cyan-500/10 text-cyan-400 px-3 py-1 rounded-full text-[10px] font-black border border-cyan-500/20">
                       {(a.rendimento || 0).toFixed(1)}%
                     </span>
                   </td>
-                  <td className="p-4 flex justify-center gap-2">
-                    <button onClick={() => { setEditingId(a.id); setFormData({...a}); }} className="p-2 text-slate-300 hover:text-red-600"><Edit3 size={18}/></button>
-                    <button onClick={async () => { if(confirm("Eliminar abate?")) await deleteDoc(doc(db, 'abates', a.id)) }} className="p-2 text-slate-300 hover:text-red-600"><Trash2 size={18}/></button>
+                  <td className="p-6 flex justify-center gap-4">
+                    <button onClick={() => { setEditingId(a.id); setFormData({...a}); }} className="text-slate-500 hover:text-cyan-400 transition-colors"><Edit3 size={18}/></button>
+                    <button onClick={async () => { if(confirm("Eliminar registo?")) await deleteDoc(doc(db, 'abates', a.id)) }} className="text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
                   </td>
                 </tr>
               ))}

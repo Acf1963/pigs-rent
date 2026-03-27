@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, writeBatch, doc, onSnapshot, query, updateDoc, deleteDoc } from 'firebase/firestore';
-import { ShieldCheck, Save, FileSpreadsheet, Trash2, Edit3, X, Check, Search, AlertCircle, Calendar } from 'lucide-react';
+import { collection, addDoc, onSnapshot, query, doc, deleteDoc, orderBy, updateDoc, writeBatch } from 'firebase/firestore';
+import { Utensils, Trash2, Edit3, Check, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-export default function SaudePage() {
+export default function AlimentacaoPage() {
   const [loading, setLoading] = useState(false);
   const [registos, setRegistos] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -12,24 +12,23 @@ export default function SaudePage() {
   const [formData, setFormData] = useState({
     loteId: '',
     data: new Date().toISOString().split('T')[0],
-    tipo: 'Vacina',
-    medicamento: '',
-    dosagem: '',
-    viaAplicacao: 'Intramuscular',
-    periodoCarenciaDias: 0,
-    custoMedicamento: 0,
-    veterinarioResponsavel: ''
+    fase: 'CRESCIMENTO',
+    tipoRacao: '',
+    quantidadeKg: 0,
+    custoPorKgKz: 0,
+    fornecedor: '',
+    observacoes: ''
   });
 
   useEffect(() => {
-    const q = query(collection(db, 'saude'));
+    const q = query(collection(db, 'alimentacao'), orderBy('data', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setRegistos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
   }, []);
 
-  // Lógica de importação robusta para tratar moedas e strings do Excel
+  // Lógica de Importação atualizada para os novos campos do Excel
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -42,29 +41,27 @@ export default function SaudePage() {
         const batch = writeBatch(db);
 
         json.forEach((row: any) => {
-          const newDocRef = doc(collection(db, 'saude'));
-          
-          // Tratamento do Custo: Remove espaços, "AOA" e normaliza separadores decimais
-          const custoRaw = String(row.custoMedicamento || '0');
-          const custoNum = Number(custoRaw.replace(/\s/g, '').replace('AOA', '').replace(',', '.'));
+          const newDocRef = doc(collection(db, 'alimentacao'));
+          const qtd = Number(row.quantidadeKg || 0);
+          const custo = Number(row.custoPorKgKz || 0);
 
           batch.set(newDocRef, {
             loteId: String(row.loteId || ''),
             data: row.data || new Date().toISOString().split('T')[0],
-            tipo: String(row.tipo || 'Tratamento').toUpperCase(),
-            medicamento: String(row.medicamento || ''),
-            dosagem: String(row.dosagem || ''),
-            viaAplicacao: String(row.viaAplicacao || '').toUpperCase(),
-            periodoCarenciaDias: Number(row.periodoCarenciaDias || 0),
-            custoMedicamento: isNaN(custoNum) ? 0 : custoNum,
-            veterinarioResponsavel: String(row.veterinarioResponsavel || ''),
+            fase: String(row.fase || 'INICIAL').toUpperCase(),
+            tipoRacao: String(row.tipoRacao || ''),
+            quantidadeKg: qtd,
+            custoPorKgKz: custo,
+            totalCustoKz: qtd * custo,
+            fornecedor: String(row.fornecedor || ''),
+            observacoes: String(row.observacoes || ''),
             createdAt: new Date().toISOString()
           });
         });
         await batch.commit();
-        alert("Histórico sanitário importado com sucesso!");
+        alert("Dados de alimentação importados!");
       } catch (err) {
-        alert("Erro ao processar ficheiro Excel.");
+        alert("Erro ao ler o ficheiro Excel.");
       } finally {
         setLoading(false);
         e.target.value = '';
@@ -77,128 +74,109 @@ export default function SaudePage() {
     e.preventDefault();
     setLoading(true);
     try {
+      const totalCustoKz = formData.quantidadeKg * formData.custoPorKgKz;
       if (editingId) {
-        await updateDoc(doc(db, 'saude', editingId), formData);
+        await updateDoc(doc(db, 'alimentacao', editingId), { ...formData, totalCustoKz });
         setEditingId(null);
       } else {
-        await addDoc(collection(db, 'saude'), { ...formData, createdAt: new Date().toISOString() });
+        await addDoc(collection(db, 'alimentacao'), { ...formData, totalCustoKz, createdAt: new Date().toISOString() });
       }
-      setFormData({ loteId: '', data: new Date().toISOString().split('T')[0], tipo: 'Vacina', medicamento: '', dosagem: '', viaAplicacao: 'Intramuscular', periodoCarenciaDias: 0, custoMedicamento: 0, veterinarioResponsavel: '' });
+      setFormData({ loteId: '', data: new Date().toISOString().split('T')[0], fase: 'CRESCIMENTO', tipoRacao: '', quantidadeKg: 0, custoPorKgKz: 0, fornecedor: '', observacoes: '' });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col p-6 text-slate-900 overflow-hidden bg-slate-50">
+    <div className="p-8 max-w-7xl mx-auto space-y-8 bg-[#0f1117] min-h-screen text-slate-100">
       
-      <div className="flex justify-between items-center mb-6 shrink-0">
-        <h1 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
-          <ShieldCheck className="text-emerald-600" size={28} /> Maneio Sanitário
-        </h1>
-        <label className="flex items-center gap-2 bg-indigo-700 text-white px-6 py-3 rounded-2xl cursor-pointer font-bold text-xs uppercase hover:bg-indigo-800 transition-all shadow-lg">
+      <div className="flex justify-between items-end border-b border-slate-800 pb-6">
+        <div>
+          <h1 className="text-3xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+            <Utensils className="text-cyan-500" size={32} /> Alimentação
+          </h1>
+        </div>
+        <label className="bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 px-6 py-2 rounded-xl cursor-pointer font-black text-xs uppercase transition-all flex items-center gap-2">
           <FileSpreadsheet size={18} /> {loading ? 'A PROCESSAR...' : 'IMPORTAR EXCEL'}
           <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleExcelImport} disabled={loading} />
         </label>
       </div>
 
-      <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 mb-6 shrink-0 overflow-hidden">
-        <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
-          <h2 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2">
-            <Save size={16} /> Registo de Tratamento
-          </h2>
-          {editingId && <button onClick={() => setEditingId(null)}><X size={20}/></button>}
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Lote</label>
-            <input required className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
+      {/* FORMULÁRIO COM NOVOS CAMPOS */}
+      <div className="bg-[#1a1d26] rounded-3xl border border-slate-800 p-6 shadow-2xl">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Lote</label>
+            <input required className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Data</label>
-            <input type="date" className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Data</label>
+            <input type="date" className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Medicamento</label>
-            <input required className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.medicamento} onChange={e => setFormData({...formData, medicamento: e.target.value})} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Tipo</label>
-            <select className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})}>
-              <option value="Vacina">Vacina</option>
-              <option value="Tratamento">Tratamento</option>
-              <option value="Vermífugo">Vermífugo</option>
-              <option value="Suplemento">Suplemento</option>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Fase</label>
+            <select className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.fase} onChange={e => setFormData({...formData, fase: e.target.value})}>
+              <option value="INICIAL">INICIAL</option>
+              <option value="CRESCIMENTO">CRESCIMENTO</option>
+              <option value="ENGORDA">ENGORDA</option>
             </select>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Custo (Kz)</label>
-            <input type="number" className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.custoMedicamento} onChange={e => setFormData({...formData, custoMedicamento: Number(e.target.value)})} />
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Tipo de Ração</label>
+            <input className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.tipoRacao} onChange={e => setFormData({...formData, tipoRacao: e.target.value})} />
           </div>
-          <button type="submit" className="bg-indigo-600 text-white font-black rounded-xl uppercase text-xs tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 h-[52px] mt-auto shadow-lg shadow-indigo-100">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Qtd (kg)</label>
+            <input type="number" className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.quantidadeKg} onChange={e => setFormData({...formData, quantidadeKg: Number(e.target.value)})} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Custo/kg (Kz)</label>
+            <input type="number" className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.custoPorKgKz} onChange={e => setFormData({...formData, custoPorKgKz: Number(e.target.value)})} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Fornecedor</label>
+            <input className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-white focus:border-cyan-500 outline-none" value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value})} />
+          </div>
+          <button type="submit" className="bg-cyan-600 text-white font-black rounded-xl uppercase text-xs h-[46px] mt-auto hover:bg-cyan-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-900/20">
             <Check size={18} /> {editingId ? 'ATUALIZAR' : 'GRAVAR'}
           </button>
         </form>
       </div>
 
-      <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
-          <h3 className="font-bold uppercase text-xs text-slate-500 flex items-center gap-2"><Search size={16} /> Histórico Sanitário</h3>
-        </div>
-        
-        <div className="flex-1 overflow-auto px-4">
-          <table className="w-full text-left border-separate border-spacing-y-2 min-w-[1000px]">
+      {/* TABELA COM COLUNAS DO EXCEL */}
+      <div className="bg-[#1a1d26] rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="text-[10px] font-black uppercase text-slate-400 italic">
-                <th className="p-4">Lote</th>
-                <th className="p-4">Data Aplicação</th>
-                <th className="p-4">Medicamento</th>
-                <th className="p-4">Tipo</th>
-                <th className="p-4">Dose/Via</th>
-                <th className="p-4 text-center">Carência</th>
-                <th className="p-4 text-right">Custo (Kz)</th>
-                <th className="p-4 text-center">Ações</th>
+              <tr className="text-[10px] font-black uppercase text-slate-500 bg-slate-800/10 border-b border-slate-800">
+                <th className="p-6">Lote</th>
+                <th className="p-6">Data</th>
+                <th className="p-6">Fase</th>
+                <th className="p-6">Ração</th>
+                <th className="p-6 text-right">Qtd (kg)</th>
+                <th className="p-6 text-right">Custo/Kg</th>
+                <th className="p-6">Fornecedor</th>
+                <th className="p-6 text-center">Ações</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-800/50">
               {registos.map((item) => (
-                <tr key={item.id} className="bg-white border border-slate-50 shadow-sm hover:shadow-md transition-all rounded-xl">
-                  <td className="p-4 font-black text-indigo-600">{item.loteId}</td>
-                  <td className="p-4 text-sm font-medium text-slate-600">{item.data}</td>
-                  <td className="p-4 font-bold text-slate-800">{item.medicamento}</td>
-                  <td className="p-4">
-                    <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg text-[10px] font-black uppercase border border-emerald-100">
-                      {item.tipo}
-                    </span>
-                  </td>
-                  <td className="p-4 text-xs font-bold text-slate-500 italic">
-                    {item.dosagem} - {item.viaAplicacao}
-                  </td>
-                  <td className="p-4 text-center">
-                    <span className="flex items-center justify-center gap-1 text-orange-600 font-black text-xs">
-                      <Calendar size={12} /> {item.periodoCarenciaDias}d
-                    </span>
-                  </td>
-                  <td className="p-4 text-right font-black text-slate-800">
-                    {/* Formatação corrigida para exibir milhares e sufixo Kz */}
-                    {Number(item.custoMedicamento || 0).toLocaleString('pt-AO')} Kz
-                  </td>
-                  <td className="p-4">
-                    <div className="flex justify-center gap-2">
-                      <button onClick={() => { setEditingId(item.id); setFormData({...item}); }} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"><Edit3 size={18}/></button>
-                      <button onClick={async () => { if(confirm("Eliminar registo sanitário?")) await deleteDoc(doc(db, 'saude', item.id)) }} className="p-2 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18}/></button>
-                    </div>
+                <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="p-6 font-black text-cyan-500 uppercase text-xs">{item.loteId}</td>
+                  <td className="p-6 text-xs text-slate-400">{item.data}</td>
+                  <td className="p-6 text-[10px] font-black text-slate-300 uppercase">{item.fase}</td>
+                  <td className="p-6 text-xs text-white uppercase">{item.tipoRacao}</td>
+                  <td className="p-6 text-right font-mono text-white text-xs">{item.quantidadeKg}</td>
+                  <td className="p-6 text-right font-mono text-white text-xs">{Number(item.custoPorKgKz).toLocaleString()} Kz</td>
+                  <td className="p-6 text-xs text-slate-400 uppercase">{item.fornecedor}</td>
+                  <td className="p-6 flex justify-center gap-3">
+                    <button onClick={() => { setEditingId(item.id); setFormData({...item}); }} className="text-slate-500 hover:text-cyan-400"><Edit3 size={16}/></button>
+                    <button onClick={() => deleteDoc(doc(db, 'alimentacao', item.id))} className="text-slate-500 hover:text-red-500"><Trash2 size={16}/></button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {registos.length === 0 && (
-            <div className="flex flex-col items-center justify-center p-20 opacity-20">
-              <AlertCircle size={48} />
-              <p className="font-black uppercase tracking-widest text-xs mt-2">Sem registos clínicos</p>
-            </div>
-          )}
         </div>
       </div>
     </div>
