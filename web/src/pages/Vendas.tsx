@@ -1,206 +1,230 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, writeBatch, doc, onSnapshot, query, updateDoc, deleteDoc } from 'firebase/firestore';
-// Removido o AlertCircle para limpar o erro 6133
-import { ShoppingCart, FileSpreadsheet, Trash2, Edit3, Search, DollarSign } from 'lucide-react';
+import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { 
+  FileSpreadsheet, 
+  FileText, 
+  UploadCloud, 
+  PieChart, 
+  Trash2, 
+  Edit3, 
+  RotateCcw, 
+  Plus 
+} from 'lucide-react';
+
+// Bibliotecas de Exportação
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function VendasPage() {
-  const [loading, setLoading] = useState(false);
   const [vendas, setVendas] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
-    loteId: '',
-    dataVenda: new Date().toISOString().split('T')[0],
-    cliente: '',
-    produto: 'CARCAÇA',
-    pesoKg: 0,
-    precoKz: 0,
-    valorTotal: 0
+    loteId: '', cliente: '', produto: '', pesoKg: 0, precoKz: 0,
+    dataVenda: new Date().toISOString().split('T')[0]
   });
 
-  // CORREÇÃO DE DATA: Converte o número do Excel (ex: 46091) para AAAA-MM-DD
-  const formatarDataExcel = (celula: any) => {
-    if (!celula) return new Date().toISOString().split('T')[0];
-    if (celula instanceof Date) return celula.toISOString().split('T')[0];
-    if (typeof celula === 'number') {
-      const date = XLSX.SSF.parse_date_code(celula);
-      const pad = (n: number) => n < 10 ? `0${n}` : n;
-      return `${date.y}-${pad(date.m)}-${pad(date.d)}`;
-    }
-    return String(celula);
-  };
-
-  // PROTEÇÃO CONTRA NaN: Limpa "AOA", espaços e converte vírgulas
-  const parseMoeda = (valor: any): number => {
-    if (valor === null || valor === undefined) return 0;
-    if (typeof valor === 'number') return valor;
-    const limpo = String(valor)
-      .replace(/\s/g, '')
-      .replace('AOA', '')
-      .replace('.', '')
-      .replace(',', '.');
-    const num = parseFloat(limpo);
-    return isNaN(num) ? 0 : num;
+  const resetForm = () => {
+    setFormData({ loteId: '', cliente: '', produto: '', pesoKg: 0, precoKz: 0, dataVenda: new Date().toISOString().split('T')[0] });
+    setEditingId(null);
   };
 
   useEffect(() => {
-    setFormData(prev => ({ ...prev, valorTotal: (prev.pesoKg || 0) * (prev.precoKz || 0) }));
-  }, [formData.pesoKg, formData.precoKz]);
-
-  useEffect(() => {
-    const q = query(collection(db, 'vendas'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const q = query(collection(db, 'vendas'), orderBy('dataVenda', 'asc'));
+    return onSnapshot(q, (snapshot) => {
       setVendas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsubscribe();
   }, []);
 
-  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // --- EXPORTAÇÃO EXCEL ---
+  const exportToExcel = () => {
+    if (vendas.length === 0) return alert("Sem dados para exportar.");
+    const data = vendas.map(v => ({
+      Lote: (v.loteId || '').toUpperCase(),
+      Data: v.dataVenda || '',
+      Cliente: (v.cliente || '').toUpperCase(),
+      Produto: (v.produto || '').toUpperCase(),
+      Peso: Number(v.pesoKg || 0),
+      Preco: Number(v.precoKz || 0),
+      Total: (Number(v.pesoKg || 0) * Number(v.precoKz || 0))
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Vendas");
+    XLSX.writeFile(wb, `Vendas_FazendaKwanza_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // --- EXPORTAÇÃO PDF ---
+  const exportToPDF = () => {
+    if (vendas.length === 0) return alert("Sem dados para exportar.");
+    const doc = new jsPDF();
+    doc.text("Relatório de Vendas - Fazenda Kwanza", 14, 15);
+    
+    const rows = vendas.map(v => [
+      (v.loteId || '').toUpperCase(),
+      v.dataVenda || '',
+      `${(v.cliente || '').toUpperCase()} / ${(v.produto || '').toUpperCase()}`,
+      Number(v.pesoKg || 0).toFixed(2),
+      (Number(v.pesoKg || 0) * Number(v.precoKz || 0)).toLocaleString() + " Kz"
+    ]);
+
+    autoTable(doc, {
+      head: [["Lote", "Data", "Cliente/Produto", "Peso (kg)", "Total (Kz)"]],
+      body: rows,
+      startY: 20,
+      theme: 'grid',
+      headStyles: { fillColor: [14, 116, 144] }
+    });
+    doc.save("Relatorio_Vendas.pdf");
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLoading(true);
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const workbook = XLSX.read(evt.target?.result, { 
-          type: 'array', 
-          cellDates: true,
-          cellNF: false 
-        });
-        
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet) as any[];
-        const batch = writeBatch(db);
-
-        json.forEach((row: any) => {
-          const newDocRef = doc(collection(db, 'vendas'));
-          const peso = parseMoeda(row.pesoKg || row.Peso);
-          const preco = parseMoeda(row.precoKz || row.Preco);
-          
-          batch.set(newDocRef, {
-            loteId: String(row.loteId || 'SEM LOTE'),
-            dataVenda: formatarDataExcel(row.dataVenda || row.data),
-            cliente: String(row.cliente || 'CLIENTE GERAL'),
-            produto: String(row.produto || 'CARCAÇA').toUpperCase(),
-            pesoKg: peso,
-            precoKz: preco,
-            valorTotal: peso * preco,
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        for (const item of data as any[]) {
+          await addDoc(collection(db, 'vendas'), {
+            loteId: (item.loteId || '').toString().toUpperCase(),
+            dataVenda: item.dataVenda || new Date().toISOString().split('T')[0],
+            cliente: (item.cliente || '').toUpperCase(),
+            produto: (item.produto || '').toUpperCase(),
+            pesoKg: Number(item.pesoKg || 0),
+            precoKz: Number(item.precoKz || 0),
             createdAt: new Date().toISOString()
           });
-        });
-        await batch.commit();
-        alert("Vendas importadas com sucesso!");
-      } catch (err) {
-        alert("Erro na leitura do Excel.");
-      } finally {
-        setLoading(false);
-        e.target.value = '';
-      }
+        }
+      } catch (err) { alert("Erro no processamento."); }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsBinaryString(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    try {
-      if (editingId) {
-        await updateDoc(doc(db, 'vendas', editingId), formData);
-        setEditingId(null);
-      } else {
-        await addDoc(collection(db, 'vendas'), { ...formData, createdAt: new Date().toISOString() });
-      }
-      setFormData({ loteId: '', dataVenda: new Date().toISOString().split('T')[0], cliente: '', produto: 'CARCAÇA', pesoKg: 0, precoKz: 0, valorTotal: 0 });
-    } finally {
-      setLoading(false);
+    if (editingId) {
+      await updateDoc(doc(db, 'vendas', editingId), { ...formData });
+    } else {
+      await addDoc(collection(db, 'vendas'), { ...formData, createdAt: new Date().toISOString() });
     }
+    resetForm();
   };
 
-  const formatarKz = (valor: number = 0) => {
-    return (valor || 0).toLocaleString('pt-AO', { minimumFractionDigits: 0 }) + ' Kz';
+  const formatDate = (date: any) => {
+    if (!date || typeof date !== 'string') return "---";
+    const p = date.split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : date;
   };
+
+  let totalAcumulado = 0;
 
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col p-6 text-slate-900 overflow-hidden bg-slate-50">
-      
-      <div className="flex justify-between items-center mb-6 shrink-0">
-        <h1 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
-          <ShoppingCart className="text-blue-600" size={28} /> Vendas Fazenda Quanza
-        </h1>
-        <label className={`flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-2xl cursor-pointer font-bold text-xs uppercase hover:bg-blue-700 transition-all shadow-lg ${loading ? 'opacity-50' : ''}`}>
-          <FileSpreadsheet size={18} /> {loading ? 'A PROCESSAR...' : 'IMPORTAR EXCEL'}
-          <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleExcelImport} disabled={loading} />
-        </label>
+    <div className="space-y-6">
+      {/* HEADER HARMONIZADO */}
+      <div className="flex justify-between items-end border-b border-slate-800 pb-6">
+        <div>
+          <h1 className="text-3xl font-black uppercase tracking-tighter flex items-center gap-3">
+            <PieChart className="text-cyan-500" size={32} /> VENDAS
+          </h1>
+          <p className="text-cyan-500/40 text-[10px] font-bold uppercase tracking-[0.2em]">Controlo de Faturação Acumulada</p>
+        </div>
+
+        <div className="flex items-center gap-2 bg-[#1a1d26] p-2 rounded-2xl border border-slate-800 shadow-xl">
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx, .xls" />
+          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1e293b] border border-slate-700 text-slate-300 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-800 transition-all">
+            <UploadCloud size={14} className="text-emerald-500" /> Importar
+          </button>
+          <button onClick={exportToExcel} className="bg-[#1e293b] border border-slate-700 text-slate-300 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-800 transition-all">
+            <FileSpreadsheet size={14} className="text-emerald-400" /> Excel
+          </button>
+          <button onClick={exportToPDF} className="bg-[#1e293b] border border-slate-700 text-slate-300 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-800 transition-all">
+            <FileText size={14} className="text-red-400" /> PDF
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 mb-6 shrink-0 overflow-hidden">
-        <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 bg-slate-50/30">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Lote</label>
-            <input required className="bg-white border border-slate-200 p-3 rounded-xl text-sm font-bold uppercase" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
+      {/* FORMULÁRIO */}
+      <div className="bg-[#1a1d26] rounded-3xl border border-slate-800 p-6">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
+          <div className="space-y-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Lote</label>
+            <input required className="w-full bg-[#0f1117] border border-slate-700 p-2.5 rounded-xl text-sm font-black text-cyan-400" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Data</label>
-            <input type="date" className="bg-white border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.dataVenda} onChange={e => setFormData({...formData, dataVenda: e.target.value})} />
+          <div className="space-y-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Data</label>
+            <input type="date" required className="w-full bg-[#0f1117] border border-slate-700 p-2.5 rounded-xl text-sm font-bold text-slate-300" value={formData.dataVenda} onChange={e => setFormData({...formData, dataVenda: e.target.value})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Peso (Kg)</label>
-            <input type="number" step="0.01" className="bg-white border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: Number(e.target.value)})} />
+          <div className="space-y-1 lg:col-span-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Cliente</label>
+            <input required className="w-full bg-[#0f1117] border border-slate-700 p-2.5 rounded-xl text-sm font-bold uppercase" value={formData.cliente} onChange={e => setFormData({...formData, cliente: e.target.value})} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-1">Preço/Kg (Kz)</label>
-            <input type="number" className="bg-white border border-slate-200 p-3 rounded-xl text-sm font-bold" value={formData.precoKz} onChange={e => setFormData({...formData, precoKz: Number(e.target.value)})} />
+          <div className="space-y-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Produto</label>
+            <input required className="w-full bg-[#0f1117] border border-slate-700 p-2.5 rounded-xl text-sm font-bold text-cyan-500 uppercase" value={formData.produto} onChange={e => setFormData({...formData, produto: e.target.value})} />
           </div>
-          <button type="submit" disabled={loading} className="mt-auto bg-blue-600 text-white font-black h-[46px] rounded-xl uppercase text-xs tracking-widest hover:bg-blue-700 transition-all shadow-lg">
-             {editingId ? 'ATUALIZAR' : 'GRAVAR'}
-          </button>
+          <div className="space-y-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Peso (kg)</label>
+            <input type="number" step="0.1" className="w-full bg-[#0f1117] border border-slate-700 p-2.5 rounded-xl text-sm font-bold text-emerald-500" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: Number(e.target.value)})} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Preço (kz)</label>
+            <input type="number" className="w-full bg-[#0f1117] border border-slate-700 p-2.5 rounded-xl text-sm font-bold text-amber-500" value={formData.precoKz} onChange={e => setFormData({...formData, precoKz: Number(e.target.value)})} />
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" className="flex-1 bg-cyan-600 text-white font-black text-[10px] uppercase rounded-xl h-[45px] hover:bg-cyan-500 transition-all flex items-center justify-center gap-2">
+              <Plus size={18}/> {editingId ? 'OK' : 'REGISTAR'}
+            </button>
+            <button type="button" onClick={resetForm} className="bg-slate-800 text-slate-400 rounded-xl w-12 h-[45px] border border-slate-700 flex items-center justify-center hover:text-white transition-all">
+              <RotateCcw size={20}/>
+            </button>
+          </div>
         </form>
       </div>
 
-      <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
-          <h3 className="font-bold uppercase text-xs text-slate-500 flex items-center gap-2"><Search size={16} /> Histórico de Vendas</h3>
-          <div className="bg-blue-600 px-6 py-2 rounded-2xl flex items-center gap-4 text-white shadow-xl shadow-blue-100">
-            <DollarSign size={20} />
-            <div className="text-right">
-              <p className="text-[9px] font-black uppercase opacity-70 leading-none">Faturamento Total</p>
-              <p className="text-lg font-black leading-none">{formatarKz(vendas.reduce((acc, curr) => acc + (curr.valorTotal || 0), 0))}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex-1 overflow-auto px-4">
-          <table className="w-full text-left border-separate border-spacing-y-2">
+      {/* TABELA */}
+      <div className="bg-[#1a1d26] rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[11px]">
             <thead>
-              <tr className="text-[10px] font-black uppercase text-slate-400 italic text-center">
-                <th className="p-4 text-left">Lote</th>
-                <th className="p-4">Data Saída</th>
-                <th className="p-4">Peso</th>
-                <th className="p-4 text-right">Preço/Kg</th>
-                <th className="p-4 text-right">Total (Kz)</th>
-                <th className="p-4">Ações</th>
+              <tr className="text-[9px] font-black uppercase text-slate-600 tracking-widest border-b border-slate-800 bg-black/20">
+                <th className="p-4">Lote</th>
+                <th className="p-4">Data</th>
+                <th className="p-4">Cliente / Produto</th>
+                <th className="p-4 text-center">Peso</th>
+                <th className="p-4 text-right">Preço Un.</th>
+                <th className="p-4 text-right text-white">Venda Total</th>
+                <th className="p-4 text-right text-cyan-400 italic">Acumulado</th>
+                <th className="p-4 text-center">Ações</th>
               </tr>
             </thead>
-            <tbody>
-              {vendas.map((v) => (
-                <tr key={v.id} className="bg-white border border-slate-50 shadow-sm hover:shadow-md transition-all rounded-xl text-center group">
-                  <td className="p-4 font-black text-blue-600 text-left">{v.loteId}</td>
-                  <td className="p-4 text-sm font-bold text-slate-600">{v.dataVenda || '-'}</td>
-                  <td className="p-4 font-bold">{v.pesoKg || 0} Kg</td>
-                  <td className="p-4 text-right font-medium">{formatarKz(v.precoKz)}</td>
-                  <td className="p-4 text-right font-black text-blue-700 bg-blue-50/30 rounded-r-xl">
-                    {formatarKz(v.valorTotal)}
-                  </td>
-                  <td className="p-4">
-                    <div className="flex justify-center gap-2">
-                      <button onClick={() => { setEditingId(v.id); setFormData({...v}); }} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Edit3 size={18}/></button>
-                      <button onClick={async () => { if(confirm("Remover venda?")) await deleteDoc(doc(db, 'vendas', v.id)) }} className="p-2 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18}/></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-slate-800/50">
+              {vendas.map((v) => {
+                const totalLinha = (Number(v.pesoKg) || 0) * (Number(v.precoKz) || 0);
+                totalAcumulado += totalLinha;
+                return (
+                  <tr key={v.id} className="hover:bg-slate-800/20 transition-colors">
+                    <td className="p-4 font-black text-cyan-500 uppercase">{v.loteId}</td>
+                    <td className="p-4 text-slate-500 font-mono">{formatDate(v.dataVenda)}</td>
+                    <td className="p-4 font-bold text-white uppercase">{v.cliente} <span className="block text-[9px] text-cyan-600 font-normal italic">{v.produto}</span></td>
+                    <td className="p-4 text-center font-bold text-emerald-500">{v.pesoKg} kg</td>
+                    <td className="p-4 text-right font-bold text-amber-500">{v.precoKz.toLocaleString()} Kz</td>
+                    <td className="p-4 text-right font-black text-slate-300 bg-white/5">{totalLinha.toLocaleString()} Kz</td>
+                    <td className="p-4 text-right font-black text-cyan-400 bg-cyan-500/5 italic">{totalAcumulado.toLocaleString()} Kz</td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-3">
+                        <button onClick={() => { setEditingId(v.id); setFormData({...v}); }} className="text-slate-600 hover:text-cyan-400"><Edit3 size={16}/></button>
+                        <button onClick={() => deleteDoc(doc(db, 'vendas', v.id))} className="text-slate-600 hover:text-red-500"><Trash2 size={16}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
