@@ -7,6 +7,8 @@ import {
   Truck,
   HeartPulse,
   Utensils,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 
 export default function ComercialPage() {
@@ -29,7 +31,7 @@ export default function ComercialPage() {
       setFinancas(prev => ({ ...prev, receitaTotal: receita }));
     });
 
-    // 2. CUSTOS DE SAÚDE (Campo exato do teu Firebase: custoMedicamento)
+    // 2. CUSTOS DE SAÚDE
     const unsubSaude = onSnapshot(collection(db, "saude"), (snap) => {
       const total = snap.docs.reduce((acc, doc) => acc + Number(doc.data().custoMedicamento || 0), 0);
       setFinancas(prev => ({ ...prev, custoSaude: total }));
@@ -44,7 +46,7 @@ export default function ComercialPage() {
       setFinancas(prev => ({ ...prev, custoAlimentacao: total }));
     });
 
-    // 4. CUSTOS DE TRANSPORTE (Campo exato do teu Firebase: custoTransporte)
+    // 4. CUSTOS DE TRANSPORTE
     const unsubLotes = onSnapshot(collection(db, "lotes"), (snap) => {
       const total = snap.docs.reduce((acc, doc) => acc + Number(doc.data().custoTransporte || 0), 0);
       setFinancas(prev => ({ ...prev, custoTransporte: total }));
@@ -62,83 +64,99 @@ export default function ComercialPage() {
     : "0";
 
   return (
-    /* h-full força a div a ter a altura exata do contentor pai */
-    <div className="h-full w-full flex flex-col space-y-4 overflow-hidden p-1">
+    <div className="min-h-full w-full flex flex-col space-y-6 p-2 pb-24 md:pb-6">
       
-      {/* HEADER: shrink-0 para não esmagar */}
-      <header className="flex justify-between items-center shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-cyan-500/20 text-cyan-400 rounded-xl border border-cyan-500/30">
-            <DollarSign size={24} />
+      {/* HEADER ADAPTATIVO */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-cyan-500/10 text-cyan-500 rounded-2xl border border-cyan-500/20 shadow-inner">
+            <DollarSign size={28} />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white uppercase tracking-tighter leading-none">Gestão Comercial</h1>
-            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1">Dados Consolidados</p>
+            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none">Gestão Comercial</h1>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1">Consolidação Fazenda Kwanza</p>
           </div>
         </div>
       </header>
 
-      {/* BLOCO DE RESULTADOS: shrink-0 */}
+      {/* RESULTADOS PRINCIPAIS: 1 Coluna no Mobile, 3 no Desktop */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
-        <div className="bg-[#161922] p-4 rounded-3xl border border-slate-800/50 shadow-lg">
-          <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Faturamento</p>
-          <p className="text-xl font-black text-white">{financas.receitaTotal.toLocaleString()} <span className="text-[10px] text-slate-500">Kz</span></p>
-        </div>
-
-        <div className="bg-[#161922] p-4 rounded-3xl border border-slate-800/50 shadow-lg">
-          <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Custos Totais</p>
-          <p className="text-xl font-black text-white">{custoTotalOperacional.toLocaleString()} <span className="text-[10px] text-slate-500">Kz</span></p>
-        </div>
-
-        <div className={`p-4 rounded-3xl shadow-xl flex flex-col justify-center transition-all ${lucroLiquido >= 0 ? 'bg-emerald-600' : 'bg-red-600'}`}>
-          <p className="text-[9px] font-black text-white/70 uppercase mb-0.5">Saldo Líquido</p>
+        <div className="bg-[#161922] p-5 rounded-[2rem] border border-slate-800/50 shadow-xl">
+          <p className="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-widest">Faturamento Total</p>
           <div className="flex items-baseline gap-2">
-            <p className="text-xl font-black text-white">{lucroLiquido.toLocaleString()} Kz</p>
-            <span className="text-[10px] font-bold bg-black/20 px-2 py-0.5 rounded-full text-white">{margemPercentual}%</span>
+            <p className="text-2xl font-black text-white">{financas.receitaTotal.toLocaleString()}</p>
+            <span className="text-[10px] font-bold text-slate-500">Kz</span>
+          </div>
+        </div>
+
+        <div className="bg-[#161922] p-5 rounded-[2rem] border border-slate-800/50 shadow-xl">
+          <p className="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-widest">Despesa Operacional</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-black text-white">{custoTotalOperacional.toLocaleString()}</p>
+            <span className="text-[10px] font-bold text-slate-500">Kz</span>
+          </div>
+        </div>
+
+        <div className={`p-5 rounded-[2rem] shadow-2xl flex flex-col justify-center transition-all border ${lucroLiquido >= 0 ? 'bg-emerald-600/10 border-emerald-500/30' : 'bg-red-600/10 border-red-500/30'}`}>
+          <div className="flex justify-between items-start mb-1">
+            <p className={`text-[10px] font-black uppercase tracking-widest ${lucroLiquido >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>Saldo Líquido</p>
+            {lucroLiquido >= 0 ? <TrendingUp size={16} className="text-emerald-500" /> : <TrendingDown size={16} className="text-red-500" />}
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className={`text-2xl font-black ${lucroLiquido >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{lucroLiquido.toLocaleString()} Kz</p>
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${lucroLiquido >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+              {margemPercentual}%
+            </span>
           </div>
         </div>
       </div>
 
-      {/* MINI CARDS DE DESPESA: shrink-0 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+      {/* MINI CARDS DE DESPESA: Grid Dinâmico */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 shrink-0">
         {[
-          { label: 'Transporte', val: financas.custoTransporte, icon: Truck, color: 'text-blue-400' },
-          { label: 'Saúde', val: financas.custoSaude, icon: HeartPulse, color: 'text-red-400' },
-          { label: 'Alimentação', val: financas.custoAlimentacao, icon: Utensils, color: 'text-orange-400' }
+          { label: 'Transporte', val: financas.custoTransporte, icon: Truck, color: 'text-blue-400', bg: 'bg-blue-400/5' },
+          { label: 'Saúde', val: financas.custoSaude, icon: HeartPulse, color: 'text-red-400', bg: 'bg-red-400/5' },
+          { label: 'Alimentação', val: financas.custoAlimentacao, icon: Utensils, color: 'text-orange-400', bg: 'bg-orange-400/5' }
         ].map((item) => (
-          <div key={item.label} className="bg-[#11141b] p-3 rounded-2xl border border-slate-800/40 flex items-center gap-3">
-            <item.icon className={item.color} size={20} />
+          <div key={item.label} className={`p-4 rounded-2xl border border-slate-800/40 flex items-center gap-4 ${item.bg}`}>
+            <div className={`p-2 rounded-xl bg-slate-900 border border-slate-800 ${item.color}`}>
+              <item.icon size={20} />
+            </div>
             <div>
-              <p className="text-[9px] font-black text-slate-500 uppercase tracking-tight">{item.label}</p>
-              <p className="text-base font-black text-white">{item.val.toLocaleString()} Kz</p>
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">{item.label}</p>
+              <p className="text-lg font-black text-white">{item.val.toLocaleString()} <span className="text-[8px] text-slate-600">Kz</span></p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* GRÁFICO: flex-1 min-h-0 para ocupar o resto do ecrã e auto-ajustar */}
-      <div className="bg-[#161922] p-6 rounded-[2.5rem] border border-slate-800/50 flex-1 min-h-0 flex flex-col">
-        <div className="flex items-center gap-2 mb-4 shrink-0">
-          <PieChart size={18} className="text-cyan-500" />
-          <span className="text-[10px] font-black text-white uppercase tracking-widest">Peso de Custos</span>
+      {/* GRÁFICO DE PESO DE CUSTOS */}
+      <div className="bg-[#161922] p-6 md:p-8 rounded-[2.5rem] border border-slate-800/50 flex-1 min-h-[300px] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between mb-8 shrink-0">
+          <div className="flex items-center gap-3">
+            <PieChart size={20} className="text-cyan-500" />
+            <span className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Distribuição de Custos</span>
+          </div>
         </div>
         
-        {/* Este container vai esticar ou encolher as barras para caberem na janela */}
-        <div className="flex-1 flex flex-col justify-around w-full max-w-2xl mx-auto py-2">
+        <div className="flex-1 flex flex-col justify-center space-y-8 w-full max-w-3xl mx-auto">
           {[
-            { label: 'Alimentação', val: financas.custoAlimentacao, color: 'bg-orange-500' },
-            { label: 'Saúde', val: financas.custoSaude, color: 'bg-red-500' },
-            { label: 'Transporte', val: financas.custoTransporte, color: 'bg-blue-500' }
+            { label: 'Alimentação', val: financas.custoAlimentacao, color: 'bg-orange-500', shadow: 'shadow-orange-500/20' },
+            { label: 'Saúde', val: financas.custoSaude, color: 'bg-red-500', shadow: 'shadow-red-500/20' },
+            { label: 'Transporte', val: financas.custoTransporte, color: 'bg-blue-500', shadow: 'shadow-blue-500/20' }
           ].map((item) => {
-            const perc = custoTotalOperacional > 0 ? (item.val / custoTotalOperacional * 100).toFixed(1) : 0;
+            const perc = custoTotalOperacional > 0 ? (item.val / custoTotalOperacional * 100).toFixed(1) : "0";
             return (
-              <div key={item.label} className="w-full">
-                <div className="flex justify-between text-[10px] font-black uppercase text-slate-500 mb-1.5">
-                  <span>{item.label}</span>
-                  <span className="text-white">{perc}%</span>
+              <div key={item.label} className="w-full group">
+                <div className="flex justify-between text-[10px] font-black uppercase text-slate-500 mb-2 px-1">
+                  <span className="group-hover:text-white transition-colors">{item.label}</span>
+                  <span className="text-white bg-slate-800 px-2 py-0.5 rounded-md">{perc}%</span>
                 </div>
-                <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden border border-slate-800">
-                  <div className={`${item.color} h-full transition-all duration-700`} style={{ width: `${perc}%` }}></div>
+                <div className="w-full bg-slate-900 h-3 rounded-full overflow-hidden border border-slate-800/50 p-[2px]">
+                  <div 
+                    className={`${item.color} ${item.shadow} h-full rounded-full transition-all duration-1000 ease-out shadow-lg`} 
+                    style={{ width: `${perc}%` }}
+                  ></div>
                 </div>
               </div>
             );
