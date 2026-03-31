@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  /* Evita seleções de texto acidentais em botões no mobile */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+body {
+  @apply bg-[#0f121a] antialiased overflow-x-hidden;
+  /* Impede o efeito de "elástico" no topo da página no iOS */
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+#root {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* Scroll suave no iPhone */
+}
+
+/* Scrollbar personalizada para o teu HP Envy (Desktop) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-slate-800 rounded-full;
+}

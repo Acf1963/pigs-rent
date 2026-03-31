@@ -72,7 +72,6 @@ export default function LotesPage() {
     reader.readAsBinaryString(file);
   };
 
-  // EXPORTAÇÃO EXCEL COM TODOS OS CAMPOS
   const exportToExcel = () => {
     const dadosParaExportar = registos.map(r => ({
       'CÓDIGO LOTE': r.loteId,
@@ -94,7 +93,6 @@ export default function LotesPage() {
     XLSX.writeFile(wb, `AgroRent_Lotes_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  // EXPORTAÇÃO PDF COM TODOS OS CAMPOS (LANDSCAPE)
   const exportToPDF = () => {
     const doc = new jsPDF('l', 'mm', 'a4');
     doc.setFontSize(16);
@@ -144,8 +142,10 @@ export default function LotesPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-2rem)] flex flex-col space-y-6 overflow-hidden">
-      {/* HEADER */}
+    /* h-full para preencher o ecrã e flex-col para organizar as secções */
+    <div className="h-full flex flex-col space-y-4 overflow-hidden">
+      
+      {/* HEADER: shrink-0 mantém o tamanho fixo */}
       <div className="flex justify-between items-center shrink-0">
         <div className="flex items-center gap-3">
           <div className="bg-cyan-500/20 p-2 rounded-lg"><Boxes className="text-cyan-400" size={32} /></div>
@@ -169,7 +169,7 @@ export default function LotesPage() {
         </div>
       </div>
 
-      {/* FORMULÁRIO */}
+      {/* FORMULÁRIO: shrink-0 mantém o tamanho fixo */}
       <div className="bg-[#161922] rounded-[2rem] border border-slate-800/50 p-6 shadow-2xl shrink-0">
         <form onSubmit={handleSubmit} className="grid grid-cols-10 gap-3">
           <div className="col-span-2 space-y-1">
@@ -223,27 +223,28 @@ export default function LotesPage() {
         </form>
       </div>
 
-      {/* TABELA COM SCROLL */}
+      {/* ÁREA DA TABELA: flex-1 e min-h-0 são fundamentais para o scroll interno */}
       <div className="flex-1 min-h-0 bg-[#161922] rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
+        {/* Este container permite o scroll apenas na tabela */}
         <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar"> 
-          <table className="w-full text-left text-[10px] min-w-[1000px]">
-            <thead className="bg-black/30 text-slate-500 font-black uppercase text-[8px] border-b border-slate-800/50 sticky top-0 z-10 backdrop-blur-md">
+          <table className="w-full text-left text-[10px] min-w-[1200px] border-collapse">
+            <thead className="bg-[#1e293b] text-slate-400 font-black uppercase text-[8px] sticky top-0 z-20">
               <tr>
-                <th className="p-4">CÓDIGO LOTE</th>
-                <th className="p-4">TIPO/RAÇA</th>
-                <th className="p-4 text-center">QUANTIDADE</th>
-                <th className="p-4">FORNECEDOR</th>
-                <th className="p-4">DATA ENTRADA</th>
-                <th className="p-4 text-center">P. SAÍDA</th>
-                <th className="p-4 text-center">P. CHEGADA</th>
-                <th className="p-4">CUSTO AQUIS.</th>
-                <th className="p-4">TRANSPORTE</th>
-                <th className="p-4 text-center">AÇÕES</th>
+                <th className="p-4 border-b border-slate-700/50">CÓDIGO LOTE</th>
+                <th className="p-4 border-b border-slate-700/50">TIPO/RAÇA</th>
+                <th className="p-4 border-b border-slate-700/50 text-center">QUANTIDADE</th>
+                <th className="p-4 border-b border-slate-700/50">FORNECEDOR</th>
+                <th className="p-4 border-b border-slate-700/50">DATA ENTRADA</th>
+                <th className="p-4 border-b border-slate-700/50 text-center">P. SAÍDA</th>
+                <th className="p-4 border-b border-slate-700/50 text-center">P. CHEGADA</th>
+                <th className="p-4 border-b border-slate-700/50">CUSTO AQUIS.</th>
+                <th className="p-4 border-b border-slate-700/50">TRANSPORTE</th>
+                <th className="p-4 border-b border-slate-700/50 text-center">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/30">
               {registos.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-800/10 transition-colors h-[50px]">
+                <tr key={r.id} className="hover:bg-slate-800/20 transition-colors h-[50px]">
                   <td className="p-4 font-black text-cyan-500 uppercase tracking-tighter">{r.loteId}</td>
                   <td className="p-4">
                     <div className="text-white font-black uppercase text-[9px]">{r.tipoAnimal}</div>
@@ -258,8 +259,8 @@ export default function LotesPage() {
                   <td className="p-4 text-slate-300 font-bold">{Number(r.custoTransporte || 0).toLocaleString()} Kz</td>
                   <td className="p-4 text-center">
                     <div className="flex justify-center gap-3">
-                      <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
-                      <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
+                      <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="text-slate-600 hover:text-cyan-400 transition-colors"><Edit3 size={14}/></button>
+                      <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="text-slate-600 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
                     </div>
                   </td>
                 </tr>
