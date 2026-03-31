@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { 
-  Boxes, FileSpreadsheet, FileText, UploadCloud, Check, Trash2, Edit3 
+  Boxes, FileSpreadsheet, FileText, UploadCloud, Check, Trash2, Edit3, RotateCcw
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -14,18 +14,21 @@ export default function LotesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // FormData harmonizado com o Excel (Raça e Custo)
-  const [formData, setFormData] = useState({
+  const initialForm = {
     loteId: '',
     dataEntrada: new Date().toISOString().split('T')[0],
-    tipoAnimal: 'SUINO',
+    tipoAnimal: 'SUÍNO',
     raca: '',
-    quantidadeInicial: '',
-    pesoMedioEntrada: '',
-    custoAquisicaoKZ: '',
+    quantidade: '',
     fornecedor: '',
+    pesoSaida: '',
+    pesoChegada: '',
+    custoAquisicao: '',
+    custoTransporte: '',
     status: 'ATIVO'
-  });
+  };
+
+  const [formData, setFormData] = useState(initialForm);
 
   useEffect(() => {
     const q = query(collection(db, 'lotes'), orderBy('dataEntrada', 'desc'));
@@ -42,88 +45,93 @@ export default function LotesPage() {
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        // cellDates: true é vital para a conformidade das datas
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
         
         for (const item of data as any[]) {
-          // Correção da Data
-          let dataFinal = item.dataEntrada || item.Data;
-          if (dataFinal instanceof Date) {
-            dataFinal = dataFinal.toISOString().split('T')[0];
-          }
-
-          // Mapeamento exato das colunas do teu Excel (image_5.png)
-          const lote = item.codigoLote || item.loteId || 'NOVO';
-          const raca = item.raca || 'N/A';
-          const qtd = item.quantidade || item.quantidadeInicial || 0;
-          const peso = item.pesoInicialMedio || item.pesoMedioEntrada || 0;
-          const custo = item.custoAquisicaol || item.custo || 0;
+          let dataFinal = item.dataEntrada || item.data || new Date();
+          if (dataFinal instanceof Date) dataFinal = dataFinal.toISOString().split('T')[0];
 
           await addDoc(collection(db, 'lotes'), { 
-            loteId: lote.toString().toUpperCase(),
-            dataEntrada: dataFinal || new Date().toISOString().split('T')[0],
-            tipoAnimal: (item.tipo || 'SUINO').toString().toUpperCase(),
-            raca: raca.toString().toUpperCase(),
-            quantidadeInicial: parseInt(qtd) || 0,
-            pesoMedioEntrada: parseFloat(peso) || 0,
-            custoAquisicaoKZ: parseFloat(custo) || 0,
+            loteId: (item.codigoLote || 'N/A').toString().toUpperCase(),
+            tipoAnimal: (item.tipo || 'SUÍNO').toString().toUpperCase(),
+            raca: (item.raca || 'N/A').toString().toUpperCase(),
+            quantidade: parseInt(item.quantidade) || 0,
             fornecedor: (item.fornecedor || 'N/A').toString().toUpperCase(),
+            dataEntrada: dataFinal,
+            pesoSaida: parseFloat(item.pesoInicialMedio) || 0,
+            pesoChegada: parseFloat(item.pesoFinalTransporte) || 0,
+            custoAquisicao: parseFloat(item.custoAquisicaol) || 0,
+            custoTransporte: parseFloat(item.custoTransporte) || 0,
             status: 'ATIVO',
             createdAt: new Date().toISOString() 
           });
         }
-      } catch (err) { console.error("Erro na importação de lotes:", err); }
+      } catch (err) { console.error("Erro na importação:", err); }
     };
     reader.readAsBinaryString(file);
   };
 
+  // EXPORTAÇÃO EXCEL COM TODOS OS CAMPOS
   const exportToExcel = () => {
-    const dadosExcel = registos.map(r => ({
-      'LOTE ID': r.loteId,
+    const dadosParaExportar = registos.map(r => ({
+      'CÓDIGO LOTE': r.loteId,
       'DATA ENTRADA': r.dataEntrada,
       'TIPO': r.tipoAnimal,
       'RAÇA': r.raca,
-      'QTD INICIAL': r.quantidadeInicial,
-      'PESO MEDIO (KG)': r.pesoMedioEntrada,
-      'CUSTO (KZ)': r.custoAquisicaoKZ,
+      'QTD (UN)': r.quantidade,
       'FORNECEDOR': r.fornecedor,
-      'STATUS': r.status
+      'PESO SAÍDA (KG)': r.pesoSaida,
+      'PESO CHEGADA (KG)': r.pesoChegada,
+      'CUSTO AQUISIÇÃO (KZ)': r.custoAquisicao,
+      'CUSTO TRANSPORTE (KZ)': r.custoTransporte,
+      'TOTAL (KZ)': (Number(r.custoAquisicao) + Number(r.custoTransporte))
     }));
-    const ws = XLSX.utils.json_to_sheet(dadosExcel);
+
+    const ws = XLSX.utils.json_to_sheet(dadosParaExportar);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Lotes");
-    XLSX.writeFile(wb, "Inventario_Lotes_Completo.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "Inventário de Lotes");
+    XLSX.writeFile(wb, `AgroRent_Lotes_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  // EXPORTAÇÃO PDF COM TODOS OS CAMPOS (LANDSCAPE)
   const exportToPDF = () => {
     const doc = new jsPDF('l', 'mm', 'a4');
-    doc.text("AgroRent - Inventário de Lotes (Conformidade Total)", 14, 15);
+    doc.setFontSize(16);
+    doc.text("AgroRent - Relatório Detalhado de Lotes", 14, 15);
+    doc.setFontSize(8);
+    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 20);
+
     autoTable(doc, {
-      head: [["LOTE ID", "ENTRADA", "RAÇA", "QTD", "PESO MD.", "CUSTO (KZ)", "FORNECEDOR"]],
+      head: [["LOTE", "ENTRADA", "TIPO/RAÇA", "QTD", "FORNECEDOR", "P.SAÍDA", "P.CHEGADA", "AQUIS. (KZ)", "TRANSP. (KZ)"]],
       body: registos.map(r => [
-        r.loteId, 
-        r.dataEntrada, 
-        r.raca, 
-        r.quantidadeInicial, 
-        `${Number(r.pesoMedioEntrada).toFixed(1)} Kg`,
-        Number(r.custoAquisicaoKZ).toLocaleString(),
-        r.fornecedor
+        r.loteId,
+        r.dataEntrada?.split('-').reverse().join('/'),
+        `${r.tipoAnimal} / ${r.raca}`,
+        r.quantidade,
+        r.fornecedor,
+        `${Number(r.pesoSaida).toFixed(1)}kg`,
+        `${Number(r.pesoChegada).toFixed(1)}kg`,
+        Number(r.custoAquisicao).toLocaleString(),
+        Number(r.custoTransporte).toLocaleString()
       ]),
-      startY: 22,
-      headStyles: { fillColor: [8, 145, 178] },
-      styles: { fontSize: 8 }
+      startY: 25,
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [8, 145, 178], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 247, 250] }
     });
-    doc.save("Inventario_Lotes.pdf");
+    doc.save(`AgroRent_Lotes_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
       ...formData,
-      quantidadeInicial: parseInt(formData.quantidadeInicial as string) || 0,
-      pesoMedioEntrada: parseFloat(formData.pesoMedioEntrada as string) || 0,
-      custoAquisicaoKZ: parseFloat(formData.custoAquisicaoKZ as string) || 0,
+      quantidade: parseInt(formData.quantidade as string) || 0,
+      pesoSaida: parseFloat(formData.pesoSaida as string) || 0,
+      pesoChegada: parseFloat(formData.pesoChegada as string) || 0,
+      custoAquisicao: parseFloat(formData.custoAquisicao as string) || 0,
+      custoTransporte: parseFloat(formData.custoTransporte as string) || 0,
     };
 
     if (editingId) {
@@ -132,16 +140,20 @@ export default function LotesPage() {
     } else {
       await addDoc(collection(db, 'lotes'), { ...payload, createdAt: new Date().toISOString() });
     }
-    setFormData({ loteId: '', dataEntrada: new Date().toISOString().split('T')[0], tipoAnimal: 'SUINO', raca: '', quantidadeInicial: '', pesoMedioEntrada: '', custoAquisicaoKZ: '', fornecedor: '', status: 'ATIVO' });
+    setFormData(initialForm);
   };
 
   return (
-    <div className="space-y-6">
-      {/* CABEÇALHO */}
-      <div className="flex justify-between items-center border-b border-slate-800/50 pb-6">
-        <h1 className="text-3xl font-black text-white flex items-center gap-3 tracking-tighter uppercase">
-          <Boxes className="text-cyan-500" size={32} /> Gestão de Lotes
-        </h1>
+    <div className="h-[calc(100vh-2rem)] flex flex-col space-y-6 overflow-hidden">
+      {/* HEADER */}
+      <div className="flex justify-between items-center shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="bg-cyan-500/20 p-2 rounded-lg"><Boxes className="text-cyan-400" size={32} /></div>
+          <div>
+            <h1 className="text-3xl font-black text-white tracking-tighter uppercase">Lotes</h1>
+            <p className="text-[8px] text-cyan-500 font-bold tracking-[0.2em] uppercase">Gestão de Inventário</p>
+          </div>
+        </div>
 
         <div className="flex gap-2 bg-[#161922] p-1.5 rounded-2xl border border-slate-800 shadow-xl">
           <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} />
@@ -157,86 +169,97 @@ export default function LotesPage() {
         </div>
       </div>
 
-      {/* FORMULÁRIO HARMONIZADO EM LINHA */}
-      <div className="bg-[#161922] rounded-[2rem] border border-slate-800/50 p-6 shadow-2xl">
-        <form onSubmit={handleSubmit} className="grid grid-cols-12 gap-3 items-end">
-          <div className="col-span-1 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Lote ID</label>
-            <input required className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-cyan-500 font-bold outline-none text-[10px] uppercase" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
+      {/* FORMULÁRIO */}
+      <div className="bg-[#161922] rounded-[2rem] border border-slate-800/50 p-6 shadow-2xl shrink-0">
+        <form onSubmit={handleSubmit} className="grid grid-cols-10 gap-3">
+          <div className="col-span-2 space-y-1">
+            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Lote</label>
+            <input required className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-cyan-500 font-bold outline-none text-xs uppercase" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
           </div>
-          <div className="col-span-1 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Entrada</label>
-            <input type="date" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-[10px]" value={formData.dataEntrada} onChange={e => setFormData({...formData, dataEntrada: e.target.value})} />
-          </div>
-          <div className="col-span-1 space-y-1">
+          <div className="col-span-2 space-y-1">
             <label className="text-[8px] font-black text-slate-500 uppercase px-1">Tipo</label>
-            <select className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-[10px]" value={formData.tipoAnimal} onChange={e => setFormData({...formData, tipoAnimal: e.target.value})}>
-              <option value="SUINO">SUINO</option>
+            <select className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-xs" value={formData.tipoAnimal} onChange={e => setFormData({...formData, tipoAnimal: e.target.value})}>
+              <option value="SUÍNO">SUÍNO</option>
               <option value="BOVINO">BOVINO</option>
             </select>
           </div>
           <div className="col-span-2 space-y-1">
             <label className="text-[8px] font-black text-slate-500 uppercase px-1">Raça</label>
-            <input className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-slate-300 font-bold outline-none text-[10px] uppercase" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value.toUpperCase()})} />
-          </div>
-          <div className="col-span-1 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Qtd</label>
-            <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-[10px]" value={formData.quantidadeInicial} onChange={e => setFormData({...formData, quantidadeInicial: e.target.value})} />
-          </div>
-          <div className="col-span-1 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Peso Md.</label>
-            <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-[10px]" value={formData.pesoMedioEntrada} onChange={e => setFormData({...formData, pesoMedioEntrada: e.target.value})} />
+            <input className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-slate-300 font-bold outline-none text-xs uppercase" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value.toUpperCase()})} />
           </div>
           <div className="col-span-2 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Custo Aquisição (KZ)</label>
-            <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-emerald-500 font-bold outline-none text-[10px]" value={formData.custoAquisicaoKZ} onChange={e => setFormData({...formData, custoAquisicaoKZ: e.target.value})} />
+            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Qtd</label>
+            <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-xs" value={formData.quantidade} onChange={e => setFormData({...formData, quantidade: e.target.value})} />
           </div>
           <div className="col-span-2 space-y-1">
             <label className="text-[8px] font-black text-slate-500 uppercase px-1">Fornecedor</label>
-            <input className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-slate-400 font-bold outline-none text-[10px] uppercase" value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value.toUpperCase()})} />
+            <input className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-slate-400 font-bold outline-none text-xs uppercase" value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value.toUpperCase()})} />
           </div>
-          <div className="col-span-1">
-            <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-3 rounded-xl transition-all shadow-lg uppercase flex items-center justify-center gap-1">
-              <Check size={12} /> Gravar
+
+          <div className="col-span-2 space-y-1">
+            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Data</label>
+            <input type="date" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-white font-bold outline-none text-xs" value={formData.dataEntrada} onChange={e => setFormData({...formData, dataEntrada: e.target.value})} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <label className="text-[8px] font-black text-emerald-500 uppercase px-1">P. Saída</label>
+            <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-emerald-500 font-bold outline-none text-xs" value={formData.pesoSaida} onChange={e => setFormData({...formData, pesoSaida: e.target.value})} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <label className="text-[8px] font-black text-orange-500 uppercase px-1">P. Chegada</label>
+            <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-orange-500 font-bold outline-none text-xs" value={formData.pesoChegada} onChange={e => setFormData({...formData, pesoChegada: e.target.value})} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <label className="text-[8px] font-black text-cyan-500 uppercase px-1">Aquisição</label>
+            <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-2.5 rounded-xl text-cyan-500 font-bold outline-none text-xs" value={formData.custoAquisicao} onChange={e => setFormData({...formData, custoAquisicao: e.target.value})} />
+          </div>
+          <div className="col-span-2 flex gap-2 items-end">
+            <button type="submit" className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-3 rounded-xl transition-all shadow-lg uppercase flex items-center justify-center gap-2">
+              <Check size={14} /> {editingId ? 'OK' : 'Gravar'}
+            </button>
+            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-slate-800 text-slate-400 p-3 rounded-xl hover:text-white transition-all">
+              <RotateCcw size={14} />
             </button>
           </div>
         </form>
       </div>
 
-      {/* TABELA HARMONIZADA E COMPLETA */}
-      <div className="bg-[#161922] rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden">
-        <div className="max-h-[220px] overflow-y-auto custom-scrollbar"> 
-          <table className="w-full text-left text-[10px]">
+      {/* TABELA COM SCROLL */}
+      <div className="flex-1 min-h-0 bg-[#161922] rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
+        <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar"> 
+          <table className="w-full text-left text-[10px] min-w-[1000px]">
             <thead className="bg-black/30 text-slate-500 font-black uppercase text-[8px] border-b border-slate-800/50 sticky top-0 z-10 backdrop-blur-md">
               <tr>
-                <th className="p-4">LOTE ID</th>
-                <th className="p-4">ENTRADA</th>
-                <th className="p-4">RAÇA</th>
-                <th className="p-4">QTD</th>
-                <th className="p-4">PESO INICIAL</th>
-                <th className="p-4">CUSTO AQUISIÇÃO</th>
-                <th className="p-4 text-center">STATUS</th>
+                <th className="p-4">CÓDIGO LOTE</th>
+                <th className="p-4">TIPO/RAÇA</th>
+                <th className="p-4 text-center">QUANTIDADE</th>
+                <th className="p-4">FORNECEDOR</th>
+                <th className="p-4">DATA ENTRADA</th>
+                <th className="p-4 text-center">P. SAÍDA</th>
+                <th className="p-4 text-center">P. CHEGADA</th>
+                <th className="p-4">CUSTO AQUIS.</th>
+                <th className="p-4">TRANSPORTE</th>
                 <th className="p-4 text-center">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/30">
               {registos.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-800/10 transition-colors h-[50px]">
-                  <td className="p-4 font-black text-cyan-500 uppercase">{r.loteId}</td>
-                  <td className="p-4 text-slate-500 font-bold">{r.dataEntrada}</td>
-                  <td className="p-4 text-slate-300 uppercase">{r.raca}</td>
-                  <td className="p-4 text-white font-bold">{r.quantidadeInicial} Cab.</td>
-                  <td className="p-4 text-white font-bold">{Number(r.pesoMedioEntrada).toFixed(1)} Kg</td>
-                  <td className="p-4 text-emerald-500 font-bold">{Number(r.custoAquisicaoKZ).toLocaleString()} KZ</td>
-                  <td className="p-4 text-center">
-                    <span className={`px-2 py-1 rounded-lg font-black text-[8px] ${r.status === 'ATIVO' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
-                      {r.status}
-                    </span>
+                  <td className="p-4 font-black text-cyan-500 uppercase tracking-tighter">{r.loteId}</td>
+                  <td className="p-4">
+                    <div className="text-white font-black uppercase text-[9px]">{r.tipoAnimal}</div>
+                    <div className="text-slate-500 uppercase text-[8px]">{r.raca}</div>
                   </td>
+                  <td className="p-4 text-white font-black text-center">{r.quantidade} <span className="text-slate-600 text-[8px]">un</span></td>
+                  <td className="p-4 text-slate-400 uppercase font-bold text-[9px]">{r.fornecedor}</td>
+                  <td className="p-4 text-slate-500 font-bold">{r.dataEntrada?.split('-').reverse().join('/')}</td>
+                  <td className="p-4 text-emerald-500 font-bold text-center">{Number(r.pesoSaida || 0).toFixed(1)}kg</td>
+                  <td className="p-4 text-orange-500 font-bold text-center">{Number(r.pesoChegada || 0).toFixed(1)}kg</td>
+                  <td className="p-4 text-cyan-500 font-black">{Number(r.custoAquisicao || 0).toLocaleString()} Kz</td>
+                  <td className="p-4 text-slate-300 font-bold">{Number(r.custoTransporte || 0).toLocaleString()} Kz</td>
                   <td className="p-4 text-center">
                     <div className="flex justify-center gap-3">
                       <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
-                      <button onClick={() => { if(confirm('Eliminar?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
+                      <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
                     </div>
                   </td>
                 </tr>

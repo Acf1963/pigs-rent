@@ -3,111 +3,147 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore'; 
 import { 
   DollarSign, 
-  TrendingUp, 
-  TrendingDown, // Mantido para os custos
   PieChart, 
-  FileCheck,
-  Info
-} from 'lucide-react'; // 'ArrowDownCircle' e 'query' removidos para limpar os avisos
+  Truck,
+  HeartPulse,
+  Utensils,
+} from 'lucide-react';
 
 export default function ComercialPage() {
   const [financas, setFinancas] = useState({
-    receita: 0,
+    receitaTotal: 0,
     custoSaude: 0,
-    custoAlimento: 0,
-    totalAbates: 0
+    custoAlimentacao: 0,
+    custoTransporte: 0
   });
 
   useEffect(() => {
-    // 1. Ouvir Proveitos (Baseado nos Abates)
-    const unsubAbates = onSnapshot(collection(db, "abates"), (snap) => {
-      const total = snap.docs.reduce((acc, doc) => {
-        const data = doc.data();
-        // Valor de referência para o mercado de Angola
-        return acc + (Number(data.pesoCarcaca) * 2800);
-      }, 0);
-      setFinancas(prev => ({ ...prev, receita: total, totalAbates: snap.size }));
+    // 1. RECEITAS
+    const unsubVendas = onSnapshot(collection(db, "vendas"), (snap) => {
+      let receita = 0;
+      snap.docs.forEach(doc => {
+        const d = doc.data();
+        const valorVenda = d.precoTotal || (Number(d.pesoKg || 0) * Number(d.precoKz || 0));
+        receita += Number(valorVenda || 0);
+      });
+      setFinancas(prev => ({ ...prev, receitaTotal: receita }));
     });
 
-    // 2. Ouvir Custos de Saúde
+    // 2. CUSTOS DE SAÚDE (Campo exato do teu Firebase: custoMedicamento)
     const unsubSaude = onSnapshot(collection(db, "saude"), (snap) => {
-      const total = snap.docs.reduce((acc, doc) => acc + (Number(doc.data().custoTotal) || 0), 0);
+      const total = snap.docs.reduce((acc, doc) => acc + Number(doc.data().custoMedicamento || 0), 0);
       setFinancas(prev => ({ ...prev, custoSaude: total }));
     });
 
-    // 3. Ouvir Custos de Alimentação (Manejo)
+    // 3. CUSTOS DE ALIMENTAÇÃO
     const unsubAlimentacao = onSnapshot(collection(db, "alimentacao"), (snap) => {
-      const total = snap.docs.reduce((acc, doc) => acc + (Number(doc.data().custoTotal) || 0), 0);
-      setFinancas(prev => ({ ...prev, custoAlimento: total }));
+      const total = snap.docs.reduce((acc, doc) => {
+        const d = doc.data();
+        return acc + (Number(d.quantidadeKg || 0) * Number(d.custoUnitario || 0));
+      }, 0);
+      setFinancas(prev => ({ ...prev, custoAlimentacao: total }));
+    });
+
+    // 4. CUSTOS DE TRANSPORTE (Campo exato do teu Firebase: custoTransporte)
+    const unsubLotes = onSnapshot(collection(db, "lotes"), (snap) => {
+      const total = snap.docs.reduce((acc, doc) => acc + Number(doc.data().custoTransporte || 0), 0);
+      setFinancas(prev => ({ ...prev, custoTransporte: total }));
     });
 
     return () => {
-      unsubAbates();
-      unsubSaude();
-      unsubAlimentacao();
+      unsubVendas(); unsubSaude(); unsubAlimentacao(); unsubLotes();
     };
   }, []);
 
-  const custoTotal = financas.custoSaude + financas.custoAlimento;
-  const margemBruta = financas.receita - custoTotal;
+  const custoTotalOperacional = financas.custoSaude + financas.custoAlimentacao + financas.custoTransporte;
+  const lucroLiquido = financas.receitaTotal - custoTotalOperacional;
+  const margemPercentual = financas.receitaTotal > 0 
+    ? ((lucroLiquido / financas.receitaTotal) * 100).toFixed(1) 
+    : "0";
 
   return (
-    <div className="p-6 space-y-8 font-sans text-slate-900">
-      {/* Header com Identidade Visual Visangol */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-100">
-            <DollarSign size={32} />
+    /* h-full força a div a ter a altura exata do contentor pai */
+    <div className="h-full w-full flex flex-col space-y-4 overflow-hidden p-1">
+      
+      {/* HEADER: shrink-0 para não esmagar */}
+      <header className="flex justify-between items-center shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-cyan-500/20 text-cyan-400 rounded-xl border border-cyan-500/30">
+            <DollarSign size={24} />
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-800">Fecho Comercial</h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Balanço Financeiro por Lote</p>
+            <h1 className="text-2xl font-black text-white uppercase tracking-tighter leading-none">Gestão Comercial</h1>
+            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1">Dados Consolidados</p>
           </div>
-        </div>
-        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 flex items-center gap-2 shadow-sm">
-          <Info size={16} className="text-cyan-500" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase">Referência: 2.800 Kz/kg</span>
         </div>
       </header>
 
-      {/* Cards de Desempenho */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Proveitos Estimados</p>
-          <p className="text-3xl font-black text-slate-800">{financas.receita.toLocaleString()} Kz</p>
-          <div className="mt-4 flex items-center gap-2 text-emerald-600 text-xs font-bold bg-emerald-50 w-fit px-3 py-1 rounded-lg">
-            <TrendingUp size={14} /> {financas.totalAbates} registros de abate
-          </div>
+      {/* BLOCO DE RESULTADOS: shrink-0 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+        <div className="bg-[#161922] p-4 rounded-3xl border border-slate-800/50 shadow-lg">
+          <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Faturamento</p>
+          <p className="text-xl font-black text-white">{financas.receitaTotal.toLocaleString()} <span className="text-[10px] text-slate-500">Kz</span></p>
         </div>
 
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Total de Custos</p>
-          <p className="text-3xl font-black text-slate-800">{custoTotal.toLocaleString()} Kz</p>
-          <div className="mt-4 flex items-center gap-2 text-red-500 text-xs font-bold bg-red-50 w-fit px-3 py-1 rounded-lg">
-            <TrendingDown size={14} /> Manejo + Sanidade
-          </div>
+        <div className="bg-[#161922] p-4 rounded-3xl border border-slate-800/50 shadow-lg">
+          <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Custos Totais</p>
+          <p className="text-xl font-black text-white">{custoTotalOperacional.toLocaleString()} <span className="text-[10px] text-slate-500">Kz</span></p>
         </div>
 
-        <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-xl text-white transform hover:scale-[1.02] transition-all">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-opacity-80">Resultado Líquido</p>
-          <p className={`text-3xl font-black ${margemBruta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {margemBruta.toLocaleString()} Kz
-          </p>
-          <div className="mt-4 flex items-center gap-2 text-slate-300 text-xs font-bold">
-            <FileCheck size={16} className="text-emerald-400" /> Margem de Operação
+        <div className={`p-4 rounded-3xl shadow-xl flex flex-col justify-center transition-all ${lucroLiquido >= 0 ? 'bg-emerald-600' : 'bg-red-600'}`}>
+          <p className="text-[9px] font-black text-white/70 uppercase mb-0.5">Saldo Líquido</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-xl font-black text-white">{lucroLiquido.toLocaleString()} Kz</p>
+            <span className="text-[10px] font-bold bg-black/20 px-2 py-0.5 rounded-full text-white">{margemPercentual}%</span>
           </div>
         </div>
       </div>
 
-      {/* Gráfico / Placeholder para Análise Profunda */}
-      <div className="bg-white p-10 rounded-[3rem] border border-slate-100 flex flex-col items-center justify-center text-center min-h-[400px]">
-        <div className="bg-slate-50 p-8 rounded-full mb-6 border border-slate-100">
-          <PieChart size={64} className="text-slate-200" />
+      {/* MINI CARDS DE DESPESA: shrink-0 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+        {[
+          { label: 'Transporte', val: financas.custoTransporte, icon: Truck, color: 'text-blue-400' },
+          { label: 'Saúde', val: financas.custoSaude, icon: HeartPulse, color: 'text-red-400' },
+          { label: 'Alimentação', val: financas.custoAlimentacao, icon: Utensils, color: 'text-orange-400' }
+        ].map((item) => (
+          <div key={item.label} className="bg-[#11141b] p-3 rounded-2xl border border-slate-800/40 flex items-center gap-3">
+            <item.icon className={item.color} size={20} />
+            <div>
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-tight">{item.label}</p>
+              <p className="text-base font-black text-white">{item.val.toLocaleString()} Kz</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* GRÁFICO: flex-1 min-h-0 para ocupar o resto do ecrã e auto-ajustar */}
+      <div className="bg-[#161922] p-6 rounded-[2.5rem] border border-slate-800/50 flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center gap-2 mb-4 shrink-0">
+          <PieChart size={18} className="text-cyan-500" />
+          <span className="text-[10px] font-black text-white uppercase tracking-widest">Peso de Custos</span>
         </div>
-        <h3 className="text-xl font-bold text-slate-800">Distribuição de Lucratividade</h3>
-        <p className="text-sm text-slate-400 mt-2 max-w-sm leading-relaxed italic">
-          A cruzar dados de alimentação e saúde com o rendimento de carcaça para gerar o ROI por lote.
-        </p>
+        
+        {/* Este container vai esticar ou encolher as barras para caberem na janela */}
+        <div className="flex-1 flex flex-col justify-around w-full max-w-2xl mx-auto py-2">
+          {[
+            { label: 'Alimentação', val: financas.custoAlimentacao, color: 'bg-orange-500' },
+            { label: 'Saúde', val: financas.custoSaude, color: 'bg-red-500' },
+            { label: 'Transporte', val: financas.custoTransporte, color: 'bg-blue-500' }
+          ].map((item) => {
+            const perc = custoTotalOperacional > 0 ? (item.val / custoTotalOperacional * 100).toFixed(1) : 0;
+            return (
+              <div key={item.label} className="w-full">
+                <div className="flex justify-between text-[10px] font-black uppercase text-slate-500 mb-1.5">
+                  <span>{item.label}</span>
+                  <span className="text-white">{perc}%</span>
+                </div>
+                <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden border border-slate-800">
+                  <div className={`${item.color} h-full transition-all duration-700`} style={{ width: `${perc}%` }}></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

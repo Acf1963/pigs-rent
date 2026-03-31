@@ -1,32 +1,32 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Sidebar from './components/sidebar'; // ALTERADO: 'S' maiúsculo para bater certo com o Linux
+import Sidebar from './components/sidebar';
 import Dashboard from './pages/Dashboard';
-import LotesPage from './pages/Lotes';
-import AlimentacaoPage from './pages/Alimentacao';
-import SaudePage from './pages/Saude';
-import AbatesPage from './pages/Abates';
+import Lotes from './pages/Lotes';
+import Alimentacao from './pages/Alimentacao';
+import Saude from './pages/Saude';
+import Abates from './pages/Abates';
 import VendasPage from './pages/Vendas';
+import ComercialPage from './pages/Comercial';
+import LotesDetalhePage from './pages/LotesDetalhe';
 
 export default function App() {
   return (
     <Router>
-      <div className="flex h-screen w-full bg-[#0f1117] overflow-hidden">
-        {/* LADO ESQUERDO: Fixo e sólido */}
+      <div className="flex h-screen bg-[#0f172a] text-slate-200 font-sans overflow-hidden">
         <Sidebar />
-
-        {/* LADO DIREITO: Flexível e com scroll próprio */}
-        <main className="flex-1 h-full overflow-y-auto p-8">
-          <div className="max-w-[1500px] mx-auto">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/lotes" element={<LotesPage />} />
-              <Route path="/alimentacao" element={<AlimentacaoPage />} />
-              <Route path="/saude" element={<SaudePage />} />
-              <Route path="/abates" element={<AbatesPage />} />
-              <Route path="/vendas" element={<VendasPage />} />
-              <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-          </div>
+        <main className="flex-1 p-8 overflow-y-auto">
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/lotes" element={<Lotes />} />
+            <Route path="/alimentacao" element={<Alimentacao />} />
+            <Route path="/saude" element={<Saude />} />
+            <Route path="/abates" element={<Abates />} />
+            <Route path="/vendas" element={<VendasPage />} />
+            <Route path="/comercial" element={<ComercialPage />} />
+            <Route path="/lotes-detalhe" element={<LotesDetalhePage />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </main>
       </div>
     </Router>

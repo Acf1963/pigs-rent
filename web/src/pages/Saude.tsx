@@ -16,7 +16,7 @@ export default function SaudePage() {
 
   const [formData, setFormData] = useState({
     loteId: '',
-    data: new Date().toISOString().split('T')[0], // Já gera em YYYY-MM-DD
+    data: new Date().toISOString().split('T')[0],
     tipo: 'VACINA',
     medicamento: '',
     dosagem: '',
@@ -25,6 +25,26 @@ export default function SaudePage() {
     custoMedicamento: '',
     veterinarioResponsavel: ''
   });
+
+  // FUNÇÃO DE CORREÇÃO DE DATA (SERIAL EXCEL PARA YYYY-MM-DD)
+  const formatarDataInput = (valor: any) => {
+    if (!valor) return '';
+    if (typeof valor === 'number') {
+      const data = new Date((valor - 25569) * 86400 * 1000);
+      return data.toISOString().split('T')[0];
+    }
+    if (typeof valor === 'string' && valor.includes('/')) {
+        return valor.split('/').reverse().join('-');
+    }
+    return String(valor).split('T')[0];
+  };
+
+  // FUNÇÃO DE EXIBIÇÃO NA TABELA (DD/MM/YYYY)
+  const formatarDataTabela = (valor: any) => {
+    if (!valor) return '---';
+    const dataIso = formatarDataInput(valor);
+    return dataIso.split('-').reverse().join('/');
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'saude'), orderBy('data', 'desc'));
@@ -44,7 +64,13 @@ export default function SaudePage() {
         const wb = XLSX.read(bstr, { type: 'binary' });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
         for (const item of data as any[]) {
-          await addDoc(collection(db, 'saude'), { ...item, createdAt: new Date().toISOString() });
+          // Normaliza a data antes de salvar no Firebase
+          const dataFormatada = formatarDataInput(item.data);
+          await addDoc(collection(db, 'saude'), { 
+            ...item, 
+            data: dataFormatada,
+            createdAt: new Date().toISOString() 
+          });
         }
       } catch (err) { console.error("Erro na importação"); }
     };
@@ -63,7 +89,7 @@ export default function SaudePage() {
     doc.text("AgroRent - Maneio Sanitário", 14, 15);
     autoTable(doc, {
       head: [["LOTE", "DATA", "TIPO", "MEDICAMENTO", "DOSE", "VIA", "CARÊNCIA", "CUSTO", "VETERINÁRIO"]],
-      body: registos.map(r => [r.loteId, r.data, r.tipo, r.medicamento, r.dosagem, r.viaAplicacao, r.periodoCarenciaDias, r.custoMedicamento, r.veterinarioResponsavel]),
+      body: registos.map(r => [r.loteId, formatarDataTabela(r.data), r.tipo, r.medicamento, r.dosagem, r.viaAplicacao, r.periodoCarenciaDias, r.custoMedicamento, r.veterinarioResponsavel]),
       startY: 20,
       styles: { fontSize: 8 },
       headStyles: { fillColor: [8, 145, 178] }
@@ -187,7 +213,7 @@ export default function SaudePage() {
             {registos.map((r) => (
               <tr key={r.id} className="hover:bg-slate-800/10 transition-colors">
                 <td className="p-4 font-black text-cyan-500 uppercase">{r.loteId}</td>
-                <td className="p-4 text-slate-500 font-bold">{r.data}</td>
+                <td className="p-4 text-slate-500 font-bold">{formatarDataTabela(r.data)}</td>
                 <td className="p-4 text-white font-bold">{r.tipo}</td>
                 <td className="p-4 text-slate-300 uppercase">{r.medicamento}</td>
                 <td className="p-4 text-white font-bold uppercase">{r.dosagem}</td>
@@ -197,7 +223,7 @@ export default function SaudePage() {
                 <td className="p-4 text-slate-400 uppercase">{r.veterinarioResponsavel}</td>
                 <td className="p-4 text-center">
                   <div className="flex justify-center gap-3">
-                    <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
+                    <button onClick={() => { setEditingId(r.id); setFormData({...r, data: formatarDataInput(r.data)}); }} className="text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
                     <button onClick={() => { if(confirm('Eliminar?')) deleteDoc(doc(db, 'saude', r.id)) }} className="text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
                   </div>
                 </td>
