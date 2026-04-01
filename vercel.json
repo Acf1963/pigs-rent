@@ -1,7 +1,6 @@
 {
   "version": 2,
   "cleanUrls": true,
-  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -12,7 +11,7 @@
       "destination": "/web/dist/assets/$1"
     },
     {
-      "source": "/((?!api/|assets/|_next/|static/).*)",
+      "source": "/((?!api/|assets/).*)",
       "destination": "/web/dist/index.html"
     }
   ]
