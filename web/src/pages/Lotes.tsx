@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { 
-  Boxes, FileSpreadsheet, FileText, UploadCloud, Check, Trash2, Edit3, RotateCcw, Plus
+  Boxes, FileSpreadsheet, FileText, UploadCloud, Check, Trash2, Edit3, RotateCcw, Plus, Scale, Truck
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -38,66 +38,38 @@ export default function LotesPage() {
     return () => unsubscribe();
   }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        
-        for (const item of data as any[]) {
-          let dataFinal = item.dataEntrada || item.data || new Date();
-          if (dataFinal instanceof Date) dataFinal = dataFinal.toISOString().split('T')[0];
-
-          await addDoc(collection(db, 'lotes'), { 
-            loteId: (item.codigoLote || 'N/A').toString().toUpperCase(),
-            tipoAnimal: (item.tipo || 'SUÍNO').toString().toUpperCase(),
-            raca: (item.raca || 'N/A').toString().toUpperCase(),
-            quantidade: parseInt(item.quantidade) || 0,
-            fornecedor: (item.fornecedor || 'N/A').toString().toUpperCase(),
-            dataEntrada: dataFinal,
-            pesoSaida: parseFloat(item.pesoInicialMedio) || 0,
-            pesoChegada: parseFloat(item.pesoFinalTransporte) || 0,
-            custoAquisicao: parseFloat(item.custoAquisicaol) || 0,
-            custoTransporte: parseFloat(item.custoTransporte) || 0,
-            status: 'ATIVO',
-            createdAt: new Date().toISOString() 
-          });
-        }
-      } catch (err) { console.error("Erro na importação:", err); }
-    };
-    reader.readAsBinaryString(file);
-  };
-
+  // --- LÓGICA DE EXPORTAÇÃO ---
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(registos.map(r => ({
-      'CÓDIGO LOTE': r.loteId,
-      'DATA ENTRADA': r.dataEntrada,
+      'LOTE': r.loteId,
+      'DATA': r.dataEntrada,
       'TIPO': r.tipoAnimal,
+      'RAÇA': r.raca,
       'QTD': r.quantidade,
-      'AQUIS. (KZ)': r.custoAquisicao,
-      'TRANSP. (KZ)': r.custoTransporte
+      'CUSTO TOTAL (KZ)': Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Lotes");
-    XLSX.writeFile(wb, `Lotes_Kwanza_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `Lotes_Kwanza_${new Date().getFullYear()}.xlsx`);
   };
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.text("AgroRent - Inventário de Lotes", 14, 15);
+    docPDF.setFontSize(16);
+    docPDF.text("FAZENDA KWANZA - INVENTÁRIO DE LOTES", 14, 15);
     autoTable(docPDF, {
-      head: [["LOTE", "ENTRADA", "TIPO/RAÇA", "QTD", "FORNECEDOR", "AQUIS. (KZ)"]],
+      head: [["LOTE", "ENTRADA", "TIPO/RAÇA", "QTD", "INVESTIMENTO (KZ)"]],
       body: registos.map(r => [
-        r.loteId, r.dataEntrada, `${r.tipoAnimal}/${r.raca}`, r.quantidade, r.fornecedor, Number(r.custoAquisicao).toLocaleString()
+        r.loteId, 
+        r.dataEntrada.split('-').reverse().join('/'), 
+        `${r.tipoAnimal}/${r.raca}`, 
+        r.quantidade, 
+        (Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)).toLocaleString()
       ]),
       startY: 22,
       headStyles: { fillColor: [8, 145, 178] }
     });
-    docPDF.save("Relatorio_Lotes.pdf");
+    docPDF.save("Relatorio_Lotes_Kwanza.pdf");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -121,113 +93,127 @@ export default function LotesPage() {
   };
 
   return (
-    <div className="h-full flex flex-col space-y-4 md:space-y-6 pb-24 md:pb-6 px-2 md:px-0">
+    <div className="space-y-4 md:space-y-6 pb-24 lg:pb-0">
       
-      {/* HEADER RESPONSIVO */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/50 pb-4 md:pb-6">
-        <div className="flex items-center gap-3">
-          <div className="bg-cyan-500/10 p-2.5 rounded-xl border border-cyan-500/20">
-            <Boxes className="text-cyan-500 w-6 h-6 md:w-8 md:h-8" />
+      {/* HEADER ADAPTATIVO */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/50 pb-6">
+        <div className="flex items-center gap-4">
+          <div className="bg-cyan-500/10 p-3 rounded-2xl border border-cyan-500/20 shadow-inner">
+            <Boxes className="text-cyan-500" size={32} />
           </div>
           <div>
-            <h1 className="text-xl md:text-3xl font-black text-white uppercase tracking-tighter">Lotes</h1>
-            <p className="text-[8px] md:text-[10px] text-slate-500 font-black tracking-widest uppercase">Fazenda Kwanza</p>
+            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none">Lotes</h1>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mt-1">Gestão de Efetivo</p>
           </div>
         </div>
 
-        {/* BOTÕES DE EXPORTAÇÃO - Grid no mobile para facilitar o toque */}
-        <div className="grid grid-cols-3 md:flex gap-2 w-full md:w-auto bg-[#161922] p-1.5 rounded-2xl border border-slate-800">
-          <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col md:flex-row items-center justify-center gap-1 bg-slate-800 text-slate-300 p-2 md:px-4 rounded-xl text-[9px] font-black uppercase hover:text-white transition-all">
-            <UploadCloud size={16} className="text-emerald-500" /> <span className="hidden md:inline">Importar</span>
+        <div className="flex flex-wrap gap-2 w-full md:w-auto bg-[#161922] p-1.5 rounded-2xl border border-slate-800 shadow-xl">
+          <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" />
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
+            <UploadCloud size={14} className="text-cyan-500" /> Importar
           </button>
-          <button onClick={exportToExcel} className="flex flex-col md:flex-row items-center justify-center gap-1 bg-slate-800 text-slate-300 p-2 md:px-4 rounded-xl text-[9px] font-black uppercase hover:text-white transition-all">
-            <FileSpreadsheet size={16} className="text-emerald-400" /> <span className="hidden md:inline">Excel</span>
+          <button onClick={exportToExcel} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
+            <FileSpreadsheet size={14} className="text-emerald-400" /> Excel
           </button>
-          <button onClick={exportToPDF} className="flex flex-col md:flex-row items-center justify-center gap-1 bg-slate-800 text-slate-300 p-2 md:px-4 rounded-xl text-[9px] font-black uppercase hover:text-white transition-all">
-            <FileText size={16} className="text-red-400" /> <span className="hidden md:inline">PDF</span>
+          <button onClick={exportToPDF} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
+            <FileText size={14} className="text-red-400" /> PDF
           </button>
         </div>
-      </header>
+      </div>
 
-      {/* FORMULÁRIO RESPONSIVO */}
-      <div className="bg-[#161922] rounded-2xl md:rounded-[2.5rem] border border-slate-800/50 p-4 md:p-8 shadow-2xl">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 md:grid md:grid-cols-10">
+      {/* FORMULÁRIO RESPONSIVO (MOBILE-FIRST) */}
+      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 p-4 md:p-6 shadow-2xl">
+        <form onSubmit={handleSubmit} className="flex flex-col md:grid md:grid-cols-12 gap-4">
           
-          <div className="grid grid-cols-2 md:contents gap-4">
-            <div className="md:col-span-2 space-y-1">
-              <label className="text-[9px] font-black text-slate-500 uppercase px-1">Código Lote</label>
-              <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-cyan-500 font-black outline-none text-xs uppercase" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
-            </div>
-            
-            <div className="md:col-span-2 space-y-1">
-              <label className="text-[9px] font-black text-slate-500 uppercase px-1">Tipo Animal</label>
-              <select className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-black outline-none text-xs" value={formData.tipoAnimal} onChange={e => setFormData({...formData, tipoAnimal: e.target.value})}>
+          <div className="md:col-span-3 space-y-1 w-full">
+            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Cód. Lote</label>
+            <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-cyan-400 font-bold outline-none text-xs uppercase focus:border-cyan-500/50" placeholder="EX: LOTE-001" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
+          </div>
+
+          <div className="md:col-span-3 space-y-1 w-full">
+            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Tipo / Raça</label>
+            <div className="flex gap-2">
+              <select className="bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs" value={formData.tipoAnimal} onChange={e => setFormData({...formData, tipoAnimal: e.target.value})}>
                 <option value="SUÍNO">SUÍNO</option>
                 <option value="BOVINO">BOVINO</option>
               </select>
+              <input className="flex-1 bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs uppercase" placeholder="RAÇA" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value.toUpperCase()})} />
             </div>
           </div>
 
-          <div className="md:col-span-3 space-y-1">
-            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Raça / Linhagem</label>
-            <input className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-slate-300 font-bold outline-none text-xs uppercase" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value.toUpperCase()})} />
-          </div>
-
-          <div className="grid grid-cols-2 md:col-span-3 gap-4">
+          <div className="grid grid-cols-2 md:col-span-3 gap-4 w-full">
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-500 uppercase px-1">Quantidade</label>
-              <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-black outline-none text-xs" value={formData.quantidade} onChange={e => setFormData({...formData, quantidade: e.target.value})} />
+              <label className="text-[8px] font-black text-slate-500 uppercase px-1">Qtd Efetivo</label>
+              <input type="number" required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-black outline-none text-xs" value={formData.quantidade} onChange={e => setFormData({...formData, quantidade: e.target.value})} />
             </div>
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-500 uppercase px-1">Data</label>
-              <input type="date" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-black outline-none text-xs" value={formData.dataEntrada} onChange={e => setFormData({...formData, dataEntrada: e.target.value})} />
+              <label className="text-[8px] font-black text-slate-500 uppercase px-1">Peso Médio (kg)</label>
+              <div className="relative">
+                <Scale className="absolute left-3 top-3 text-cyan-900" size={14} />
+                <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-cyan-500 font-black outline-none text-xs" value={formData.pesoSaida} onChange={e => setFormData({...formData, pesoSaida: e.target.value})} />
+              </div>
             </div>
           </div>
 
-          <div className="flex gap-2 pt-2 md:col-span-10 md:justify-end">
-            <button type="submit" className="flex-1 md:flex-none md:px-12 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs py-4 rounded-xl uppercase flex items-center justify-center gap-2 active:scale-95 transition-all">
+          <div className="grid grid-cols-2 md:col-span-3 gap-4 w-full">
+            <div className="space-y-1">
+              <label className="text-[8px] font-black text-emerald-500 uppercase px-1">Custo Aquisição</label>
+              <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.custoAquisicao} onChange={e => setFormData({...formData, custoAquisicao: e.target.value})} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[8px] font-black text-emerald-500 uppercase px-1">Transporte</label>
+              <div className="relative">
+                <Truck className="absolute left-3 top-3 text-emerald-900" size={14} />
+                <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.custoTransporte} onChange={e => setFormData({...formData, custoTransporte: e.target.value})} />
+              </div>
+            </div>
+          </div>
+
+          <div className="md:col-span-12 flex gap-2 w-full pt-2">
+            <button type="submit" className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-4 rounded-xl transition-all shadow-lg uppercase flex items-center justify-center gap-2 active:scale-95">
               {editingId ? <Check size={16} /> : <Plus size={16} />} 
-              {editingId ? 'Atualizar' : 'Criar Lote'}
+              {editingId ? 'Atualizar Dados' : 'Registrar Novo Lote'}
             </button>
-            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-slate-800 text-slate-500 p-4 rounded-xl hover:text-white transition-all">
-              <RotateCcw size={16} />
+            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-slate-800 p-4 rounded-xl text-slate-500 hover:text-white transition-all">
+              <RotateCcw size={16}/>
             </button>
           </div>
         </form>
       </div>
 
-      {/* ÁREA DA TABELA COM SCROLL HORIZONTAL CONTROLADO */}
-      <div className="flex-1 bg-[#161922] rounded-2xl md:rounded-[2.5rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
-        <div className="overflow-x-auto flex-1"> 
-          <table className="w-full text-left text-[10px] min-w-[800px]">
-            <thead className="bg-black/40 text-slate-500 font-black uppercase text-[8px] md:text-[9px] sticky top-0 z-20 backdrop-blur-md">
+      {/* TABELA COM SCROLL HORIZONTAL */}
+      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
+        <div className="overflow-x-auto custom-scrollbar flex-1"> 
+          <table className="w-full text-left text-[10px] min-w-[900px]">
+            <thead className="bg-black/30 text-slate-500 font-black uppercase text-[8px] border-b border-slate-800/50 sticky top-0 z-10 backdrop-blur-md">
               <tr>
-                <th className="p-4 md:p-5">CÓDIGO LOTE</th>
-                <th className="p-4 md:p-5">ESPECIFICAÇÃO</th>
-                <th className="p-4 md:p-5 text-center">EFETIVO</th>
-                <th className="p-4 md:p-5 text-center font-black text-emerald-500">P. SAÍDA</th>
-                <th className="p-4 md:p-5">CUSTO TOTAL (KZ)</th>
-                <th className="p-4 md:p-5 text-center">AÇÕES</th>
+                <th className="p-4">CÓDIGO LOTE</th>
+                <th className="p-4">ESPECIFICAÇÃO</th>
+                <th className="p-4 text-center">QUANTIDADE</th>
+                <th className="p-4 text-center">PESO INICIAL</th>
+                <th className="p-4 text-center">INVESTIMENTO</th>
+                <th className="p-4 text-center">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/20">
               {registos.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-800/10 transition-colors">
-                  <td className="p-4 md:p-5 font-black text-cyan-500 uppercase text-xs md:text-sm">{r.loteId}</td>
-                  <td className="p-4 md:p-5">
-                    <div className="text-white font-black uppercase text-[9px] md:text-[10px]">{r.tipoAnimal}</div>
-                    <div className="text-slate-500 uppercase text-[7px] md:text-[8px] font-bold tracking-widest">{r.raca || 'N/A'}</div>
+                <tr key={r.id} className="hover:bg-cyan-500/[0.02] transition-colors group">
+                  <td className="p-4 font-black text-cyan-500 uppercase text-xs">{r.loteId}</td>
+                  <td className="p-4">
+                    <div className="text-white font-black uppercase text-[9px]">{r.tipoAnimal}</div>
+                    <div className="text-slate-500 uppercase text-[7px] font-bold">{r.raca || 'N/A'}</div>
                   </td>
-                  <td className="p-4 md:p-5 text-white font-black text-center text-xs md:text-sm">{r.quantidade} <span className="text-slate-600 text-[8px]">UN</span></td>
-                  <td className="p-4 md:p-5 text-emerald-500/80 font-black text-center text-xs">{Number(r.pesoSaida || 0).toFixed(1)} kg</td>
-                  <td className="p-4 md:p-5 font-black text-white text-xs">
-                    {(Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)).toLocaleString()}
+                  <td className="p-4 text-center text-white font-black text-sm">{r.quantidade} <span className="text-[8px] text-slate-500">CAB</span></td>
+                  <td className="p-4 text-center text-cyan-400 font-bold">{Number(r.pesoSaida || 0).toFixed(1)} Kg</td>
+                  <td className="p-4 text-center">
+                    <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-lg font-black border border-emerald-500/10">
+                      {(Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)).toLocaleString()} Kz
+                    </span>
                   </td>
-                  <td className="p-4 md:p-5 text-center">
-                    <div className="flex justify-center gap-1.5 md:gap-2">
-                      <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="p-2 bg-slate-800/50 rounded-lg text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
-                      <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="p-2 bg-slate-800/50 rounded-lg text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
+                  <td className="p-4 text-center">
+                    <div className="flex justify-center gap-2">
+                      <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="p-2 bg-slate-800/40 rounded-lg text-slate-500 hover:text-cyan-400 transition-all"><Edit3 size={16}/></button>
+                      <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="p-2 bg-slate-800/40 rounded-lg text-slate-600 hover:text-red-500 transition-all"><Trash2 size={16}/></button>
                     </div>
                   </td>
                 </tr>
@@ -236,21 +222,21 @@ export default function LotesPage() {
           </table>
         </div>
         
-        {/* RODAPÉ RESUMO */}
-        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex justify-between items-center px-4 md:px-8">
-          <div className="flex gap-4 md:gap-10">
+        {/* RESUMO DE INVESTIMENTO */}
+        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex justify-between items-center px-8">
+          <div className="flex gap-10">
             <div className="flex flex-col">
-              <span className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase">Efetivo</span>
-              <span className="text-xs md:text-sm font-black text-white">{registos.reduce((acc, r) => acc + (Number(r.quantidade) || 0), 0)}</span>
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Total Cabeças</span>
+              <span className="text-xs font-black text-white">{registos.reduce((acc, r) => acc + (Number(r.quantidade) || 0), 0)}</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase">Investimento</span>
-              <span className="text-xs md:text-sm font-black text-cyan-500">
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Investimento Total</span>
+              <span className="text-sm font-black text-cyan-500">
                 {registos.reduce((acc, r) => acc + (Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)), 0).toLocaleString()} Kz
               </span>
             </div>
           </div>
-          <Boxes className="text-cyan-500 opacity-20 w-5 h-5 hidden xs:block" />
+          <Check size={14} className="text-cyan-500 opacity-30" />
         </div>
       </div>
     </div>
