@@ -7,11 +7,7 @@
       "destination": "/api/src/index.ts"
     },
     {
-      "source": "/assets/(.*)",
-      "destination": "/web/dist/assets/$1"
-    },
-    {
-      "source": "/((?!api/|assets/).*)",
+      "source": "/(.*)",
       "destination": "/web/dist/index.html"
     }
   ]
