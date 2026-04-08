@@ -7,7 +7,7 @@ import {
 import { 
   ShoppingCart, Plus, Trash2, Check, UploadCloud, 
   FileSpreadsheet, FileText, RotateCcw, TrendingUp, 
-  User, Scale, Square, CheckSquare, Fingerprint
+  User, Scale, Square, CheckSquare, Fingerprint, Edit3 
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -33,7 +33,7 @@ export default function VendasPage() {
 
   const [formData, setFormData] = useState(initialForm);
 
-  // 1. Listeners do Firebase
+  // 1. Monitorização em tempo real do Firebase
   useEffect(() => {
     const q = query(collection(db, 'vendas'), orderBy('dataVenda', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -67,7 +67,7 @@ export default function VendasPage() {
     setSelectedIds([]);
   };
 
-  // 2. Importação Excel Inteligente
+  // 2. Importação Excel com mapeamento flexível (loteId ou codigoLote)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -82,21 +82,28 @@ export default function VendasPage() {
         data.forEach((item: any) => {
           const newDocRef = doc(collection(db, 'vendas'));
           batch.set(newDocRef, {
-            codigoLote: String(item.codigoLote || 'N/A').toUpperCase(),
+            // Mapeamento corrigido para aceitar o nome da coluna do teu Excel
+            codigoLote: String(item.loteId || item.codigoLote || 'N/A').toUpperCase(),
             brinco: String(item.brinco || '').toUpperCase(),
-            dataVenda: item.dataVenda instanceof Date ? item.dataVenda.toISOString().split('T')[0] : (item.dataVenda || new Date().toISOString().split('T')[0]),
+            dataVenda: item.dataVenda instanceof Date 
+              ? item.dataVenda.toISOString().split('T')[0] 
+              : (item.dataVenda || new Date().toISOString().split('T')[0]),
             cliente: String(item.cliente || 'CLIENTE GERAL').toUpperCase(),
-            produto: String(item.produto || 'CARNE').toUpperCase(),
+            produto: String(item.produto || 'SUÍNO VIVO').toUpperCase(),
             pesoKg: parseFloat(item.pesoKg) || 0,
             precoKz: parseFloat(item.precoKz) || 0,
             createdAt: new Date().toISOString()
           });
         });
         await batch.commit();
-        alert("Vendas importadas!");
-      } catch (err) { console.error(err); }
+        alert("Vendas importadas com sucesso!");
+      } catch (err) { 
+        console.error(err);
+        alert("Erro ao importar ficheiro.");
+      }
     };
     reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // 3. Exportações
@@ -107,12 +114,12 @@ export default function VendasPage() {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Vendas");
-    XLSX.writeFile(wb, "Relatorio_Vendas_Fazenda.xlsx");
+    XLSX.writeFile(wb, "Relatorio_Vendas.xlsx");
   };
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.text("Fazenda Kwanza - Relatório Comercial", 14, 15);
+    docPDF.text("Relatório Comercial - Fazenda Kwanza", 14, 15);
     autoTable(docPDF, {
       head: [["LOTE", "BRINCO", "DATA", "CLIENTE", "PESO", "PREÇO/KG", "TOTAL"]],
       body: vendas.map(v => [
@@ -144,6 +151,7 @@ export default function VendasPage() {
   };
 
   const faturamentoTotal = vendas.reduce((acc, v) => acc + (v.pesoKg * v.precoKz), 0);
+  const pesoTotal = vendas.reduce((acc, v) => acc + (Number(v.pesoKg) || 0), 0);
 
   return (
     <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
@@ -152,18 +160,18 @@ export default function VendasPage() {
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
         <div className="flex items-center gap-3">
           <ShoppingCart className="text-emerald-500" size={32} />
-          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">Vendas</h1>
+          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none">Vendas</h1>
         </div>
 
         <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800">
+          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".xlsx, .xls" />
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
             <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR
           </button>
-          <button onClick={exportToExcel} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800">
+          <button onClick={exportToExcel} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
             <FileSpreadsheet size={14} className="text-emerald-500" /> EXCEL
           </button>
-          <button onClick={exportToPDF} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800">
+          <button onClick={exportToPDF} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
             <FileText size={14} className="text-red-500" /> PDF
           </button>
           
@@ -180,7 +188,7 @@ export default function VendasPage() {
         <form onSubmit={handleSubmit} className="grid grid-cols-2 lg:flex lg:flex-nowrap gap-4 items-end">
           <div className="space-y-1 flex-1">
             <label className="text-[9px] font-black text-slate-500 uppercase px-1">Lote</label>
-            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs uppercase" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
+            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs uppercase focus:border-emerald-500/50" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
           </div>
 
           <div className="space-y-1 flex-1">
@@ -201,19 +209,35 @@ export default function VendasPage() {
 
           <div className="space-y-1 flex-1">
             <label className="text-[9px] font-black text-emerald-500 uppercase px-1">Peso (Kg)</label>
-            <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: e.target.value})} />
+            <div className="relative">
+              <Scale className="absolute left-3 top-3 text-emerald-900" size={14} />
+              <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: e.target.value})} />
+            </div>
           </div>
 
-          <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-8 py-3.5 rounded-xl uppercase flex items-center justify-center gap-2 shadow-lg transition-all shrink-0">
-            {editingId ? <Check size={18} /> : <Plus size={18} />} GRAVAR
-          </button>
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-emerald-500 uppercase px-1">Kz/Kg</label>
+            <div className="relative">
+              <TrendingUp className="absolute left-3 top-3 text-emerald-900" size={14} />
+              <input type="number" required className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.precoKz} onChange={e => setFormData({...formData, precoKz: e.target.value})} />
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-8 py-3.5 rounded-xl uppercase flex items-center justify-center gap-2 shadow-lg transition-all shrink-0">
+              {editingId ? <Check size={18} /> : <Plus size={18} />} GRAVAR
+            </button>
+            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-slate-800 p-3.5 rounded-xl text-slate-500 hover:text-white transition-all">
+              <RotateCcw size={18}/>
+            </button>
+          </div>
         </form>
       </div>
 
       {/* TABELA COM MULTI-SELEÇÃO */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
-          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[950px]">
+          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1000px]">
             <thead className="bg-[#11141d] text-slate-500 font-black uppercase text-[9px] sticky top-0 z-10">
               <tr>
                 <th className="p-4 border-b border-slate-800/50 w-10">
@@ -226,7 +250,8 @@ export default function VendasPage() {
                 <th className="p-4 border-b border-slate-800/50">DATA</th>
                 <th className="p-4 border-b border-slate-800/50">CLIENTE</th>
                 <th className="p-4 text-center border-b border-slate-800/50">PESO</th>
-                <th className="p-4 text-right border-b border-slate-800/50">TOTAL (KZ)</th>
+                <th className="p-4 text-center border-b border-slate-800/50">PREÇO/KG</th>
+                <th className="p-4 text-right border-b border-slate-800/50 px-8">TOTAL (KZ)</th>
                 <th className="p-4 text-center border-b border-slate-800/50">AÇÕES</th>
               </tr>
             </thead>
@@ -245,8 +270,9 @@ export default function VendasPage() {
                     <td className="p-4 text-slate-400 font-bold">{v.dataVenda?.split('-').reverse().join('/')}</td>
                     <td className="p-4 text-white font-black uppercase text-[9px]">{v.cliente}</td>
                     <td className="p-4 text-center text-emerald-400 font-black">{v.pesoKg} Kg</td>
-                    <td className="p-4 text-right">
-                      <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-lg font-black border border-emerald-500/10">
+                    <td className="p-4 text-center text-slate-500 font-bold">{Number(v.precoKz).toLocaleString()}</td>
+                    <td className="p-4 text-right px-8">
+                      <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-lg font-black border border-emerald-500/10 group-hover:border-emerald-500/30 transition-all">
                         {(v.pesoKg * v.precoKz).toLocaleString()}
                       </span>
                     </td>
@@ -263,21 +289,21 @@ export default function VendasPage() {
           </table>
         </div>
 
-        {/* FOOTER FINANCEIRO */}
-        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex justify-between items-center shrink-0">
-          <div className="flex gap-10 px-4">
+        {/* RODAPÉ FINANCEIRO */}
+        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex flex-col md:flex-row justify-between items-center shrink-0 gap-4">
+          <div className="flex gap-10 px-4 w-full md:w-auto">
             <div className="flex flex-col">
               <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Peso Total Escoado</span>
-              <span className="text-sm font-black text-white">
-                {vendas.reduce((acc, v) => acc + (Number(v.pesoKg) || 0), 0).toLocaleString()} Kg
-              </span>
+              <span className="text-sm font-black text-white">{pesoTotal.toLocaleString()} Kg</span>
             </div>
             <div className="flex flex-col">
               <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Faturamento Acumulado</span>
-              <span className="text-sm font-black text-emerald-500">
-                {faturamentoTotal.toLocaleString()} Kz
-              </span>
+              <span className="text-sm font-black text-emerald-500">{faturamentoTotal.toLocaleString()} Kz</span>
             </div>
+          </div>
+          <div className="flex items-center gap-2 opacity-30 px-4">
+            <Check size={14} className="text-emerald-500" />
+            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Dados Comercializados - Fazenda Kwanza</p>
           </div>
         </div>
       </div>
