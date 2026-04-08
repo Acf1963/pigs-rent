@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { 
+  collection, addDoc, onSnapshot, query, orderBy, 
+  deleteDoc, doc, updateDoc, writeBatch 
+} from 'firebase/firestore';
 import { 
   Skull, FileSpreadsheet, FileText, UploadCloud, 
-  Check, Trash2, Edit3, Plus 
+  Check, Trash2, Edit3, Plus, Tag, Square, CheckSquare 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -11,11 +14,14 @@ import autoTable from 'jspdf-autotable';
 
 export default function AbatesPage() {
   const [registos, setRegistos] = useState<any[]>([]);
+  const [animais, setAnimais] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const initialForm = {
     loteId: '',
+    brinco: '',
     dataAbate: new Date().toISOString().split('T')[0],
     pesoVivoKg: '',
     carcacaKg: '',
@@ -24,16 +30,46 @@ export default function AbatesPage() {
 
   const [formData, setFormData] = useState(initialForm);
 
-  // 1. Listeners do Firebase
   useEffect(() => {
-    const q = query(collection(db, 'abates'), orderBy('dataAbate', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const qAbates = query(collection(db, 'abates'), orderBy('dataAbate', 'desc'));
+    const unsubAbates = onSnapshot(qAbates, (snapshot) => {
       setRegistos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsubscribe();
+
+    const qAnimais = query(collection(db, 'animais'), orderBy('brinco', 'asc'));
+    const unsubAnimais = onSnapshot(qAnimais, (snapshot) => {
+      setAnimais(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubAbates(); unsubAnimais(); };
   }, []);
 
-  // 2. Importação Excel
+  // --- LÓGICA DE SELEÇÃO ---
+  const toggleSelectAll = () => {
+    if (selectedIds.length === registos.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(registos.map(r => r.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const deleteSelected = async () => {
+    if (!confirm(`Eliminar ${selectedIds.length} registos?`)) return;
+    const batch = writeBatch(db);
+    selectedIds.forEach(id => {
+      batch.delete(doc(db, 'abates', id));
+    });
+    await batch.commit();
+    setSelectedIds([]);
+  };
+
+  // --- IMPORTAÇÃO / EXPORTAÇÃO ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -43,63 +79,53 @@ export default function AbatesPage() {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        const batch = writeBatch(db);
         
         for (const item of data as any[]) {
-          let dataFinal = item.dataAbate || item.data;
-          if (dataFinal instanceof Date) dataFinal = dataFinal.toISOString().split('T')[0];
-
-          const vivo = item.pesoVivoKg || item.pesoVivoK || item.peso_vivo || 0;
-          const carcaca = item.carcacaKg || item.CarcacaKg || item.carcaca || 0;
-
-          await addDoc(collection(db, 'abates'), { 
-            loteId: (item.loteId || item.loteID || 'S/L').toString(),
-            dataAbate: dataFinal || new Date().toISOString().split('T')[0],
-            pesoVivoKg: parseFloat(vivo),
-            carcacaKg: parseFloat(carcaca),
-            observacoes: (item.observacoes || item.obs || '').toString().toUpperCase(),
+          const newDoc = doc(collection(db, 'abates'));
+          batch.set(newDoc, { 
+            loteId: String(item.loteId || 'S/L').toUpperCase(),
+            brinco: String(item.brinco || '').toUpperCase(),
+            dataAbate: item.dataAbate || new Date().toISOString().split('T')[0],
+            pesoVivoKg: parseFloat(item.pesoVivoKg) || 0,
+            carcacaKg: parseFloat(item.carcacaKg) || 0,
+            observacoes: String(item.observacoes || '').toUpperCase(),
             createdAt: new Date().toISOString() 
           });
         }
-      } catch (err) { console.error("Erro na importação:", err); }
+        await batch.commit();
+        alert("Importação concluída!");
+      } catch (err) { console.error(err); }
     };
     reader.readAsBinaryString(file);
   };
 
-  // 3. Exportação Excel
   const exportToExcel = () => {
-    const dataToExport = registos.map(r => ({
-      'Lote ID': r.loteId,
-      'Data Abate': r.dataAbate,
-      'Peso Vivo (Kg)': Number(r.pesoVivoKg).toFixed(1),
-      'Carcaça (Kg)': Number(r.carcacaKg).toFixed(1),
-      'Rendimento (%)': r.pesoVivoKg > 0 ? ((r.carcacaKg / r.pesoVivoKg) * 100).toFixed(1) + '%' : '0%',
-      'Observações': r.observacoes
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Abates");
-    XLSX.writeFile(workbook, `Abates_Kwanza_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const ws = XLSX.utils.json_to_sheet(registos.map(r => ({
+      Lote: r.loteId,
+      Brinco: r.brinco,
+      Data: r.dataAbate,
+      'Peso Vivo': r.pesoVivoKg,
+      Carcaca: r.carcacaKg,
+      Rendimento: r.pesoVivoKg > 0 ? ((r.carcacaKg / r.pesoVivoKg) * 100).toFixed(1) + '%' : '0%'
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Abates");
+    XLSX.writeFile(wb, "Relatorio_Abates.xlsx");
   };
 
-  // 4. Exportação PDF
   const exportToPDF = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
-    doc.text("AgroRent - Fazenda Kwanza: Registo de Abates", 14, 15);
-    autoTable(doc, {
-      head: [["LOTE ID", "DATA ABATE", "PESO VIVO", "CARCAÇA", "REND. %", "OBSERVAÇÕES"]],
+    const docPDF = new jsPDF('l', 'mm', 'a4');
+    autoTable(docPDF, {
+      head: [["LOTE", "BRINCO", "DATA", "P. VIVO", "CARCAÇA", "REND %"]],
       body: registos.map(r => [
-        r.loteId, 
-        r.dataAbate, 
-        `${Number(r.pesoVivoKg).toFixed(1)} Kg`, 
-        `${Number(r.carcacaKg).toFixed(1)} Kg`,
-        `${r.pesoVivoKg > 0 ? ((r.carcacaKg / r.pesoVivoKg) * 100).toFixed(1) : '0.0'}%`,
-        r.observacoes
+        r.loteId, r.brinco, r.dataAbate, 
+        `${r.pesoVivoKg}kg`, `${r.carcacaKg}kg`,
+        `${r.pesoVivoKg > 0 ? ((r.carcacaKg / r.pesoVivoKg) * 100).toFixed(1) : '0'}%`
       ]),
-      startY: 20,
-      headStyles: { fillColor: [8, 145, 178] }
+      headStyles: { fillColor: [6, 182, 212] }
     });
-    doc.save("Registos_Abate_Kwanza.pdf");
+    docPDF.save("Abates.pdf");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -120,102 +146,108 @@ export default function AbatesPage() {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6 pb-24 lg:pb-0">
+    <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
       
-      {/* HEADER ADAPTATIVO */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/50 pb-6">
-        <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3 tracking-tighter uppercase">
-          <Skull className="text-cyan-500" size={32} /> Abates
-        </h1>
+      {/* HEADER */}
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <Skull className="text-cyan-500" size={28} />
+          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight">ABATES</h1>
+        </div>
 
-        <div className="flex flex-wrap gap-2 w-full md:w-auto bg-[#161922] p-1.5 rounded-2xl border border-slate-800 shadow-xl">
+        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
           <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} />
-          
-          <button onClick={() => fileInputRef.current?.click()} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
-            <UploadCloud size={14} className="text-emerald-500" /> Importar
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+            <UploadCloud size={14} className="text-emerald-500" /> IMPORTAR
           </button>
-
-          <button onClick={exportToExcel} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
-            <FileSpreadsheet size={14} className="text-emerald-400" /> Excel
+          <button onClick={exportToExcel} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+            <FileSpreadsheet size={14} className="text-cyan-400" /> EXCEL
           </button>
-
-          <button onClick={exportToPDF} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
+          <button onClick={exportToPDF} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
             <FileText size={14} className="text-red-400" /> PDF
           </button>
-        </div>
-      </div>
-
-      {/* FORMULÁRIO RESPONSIVO */}
-      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 p-4 md:p-6 shadow-2xl">
-        <form onSubmit={handleSubmit} className="flex flex-col md:grid md:grid-cols-12 gap-4">
           
-          <div className="md:col-span-2 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Lote ID</label>
-            <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-cyan-500 font-bold outline-none text-xs uppercase" placeholder="LOTE-01" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
-          </div>
-
-          <div className="md:col-span-2 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Data</label>
-            <input type="date" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs" value={formData.dataAbate} onChange={e => setFormData({...formData, dataAbate: e.target.value})} />
-          </div>
-
-          <div className="grid grid-cols-2 md:col-span-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-slate-500 uppercase px-1">P. Vivo</label>
-              <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs" value={formData.pesoVivoKg} onChange={e => setFormData({...formData, pesoVivoKg: e.target.value})} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-slate-500 uppercase px-1">Carcaça</label>
-              <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs" value={formData.carcacaKg} onChange={e => setFormData({...formData, carcacaKg: e.target.value})} />
-            </div>
-          </div>
-
-          <div className="md:col-span-4 space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Observações</label>
-            <input className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-slate-400 font-bold outline-none text-xs uppercase" placeholder="NOTAS ADICIONAIS" value={formData.observacoes} onChange={e => setFormData({...formData, observacoes: e.target.value.toUpperCase()})} />
-          </div>
-
-          <div className="md:col-span-2 pt-2 md:pt-0">
-            <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs py-3.5 rounded-xl transition-all shadow-lg uppercase flex items-center justify-center gap-2 active:scale-95">
-              {editingId ? <Check size={16} /> : <Plus size={16} />} 
-              {editingId ? 'Atualizar' : 'Gravar'}
+          {selectedIds.length > 0 && (
+            <button onClick={deleteSelected} className="flex-1 lg:flex-none bg-red-600/20 border border-red-500/50 px-4 py-2 rounded-lg text-[10px] font-black text-red-500 flex items-center justify-center gap-2 hover:bg-red-600 hover:text-white transition-all">
+              <Trash2 size={14} /> ELIMINAR ({selectedIds.length})
             </button>
+          )}
+        </div>
+      </header>
+
+      {/* FORMULÁRIO */}
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0">
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:flex md:flex-nowrap gap-4 items-end">
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Lote</label>
+            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-lg text-white text-xs font-bold outline-none uppercase focus:border-cyan-500" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
           </div>
+
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Brinco</label>
+            <select required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-lg text-white text-xs font-bold outline-none uppercase focus:border-cyan-500" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value})}>
+              <option value="">SELECIONAR</option>
+              {animais.map(a => <option key={a.id} value={a.brinco}>{a.brinco}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-1 flex-1 text-center">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">P. Vivo (kg)</label>
+            <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-lg text-white text-xs font-bold outline-none" value={formData.pesoVivoKg} onChange={e => setFormData({...formData, pesoVivoKg: e.target.value})} />
+          </div>
+
+          <div className="space-y-1 flex-1 text-center">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Carcaça (kg)</label>
+            <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-lg text-white text-xs font-bold outline-none" value={formData.carcacaKg} onChange={e => setFormData({...formData, carcacaKg: e.target.value})} />
+          </div>
+
+          <button type="submit" className="col-span-2 md:w-auto bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[11px] px-8 py-3.5 rounded-xl uppercase flex items-center justify-center gap-2 shadow-lg transition-all shrink-0">
+            {editingId ? <Check size={18} /> : <Plus size={18} />} {editingId ? 'Atualizar' : 'Gravar'}
+          </button>
         </form>
       </div>
 
-      {/* TABELA / LISTAGEM */}
-      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
-        <div className="overflow-x-auto custom-scrollbar flex-1"> 
-          <table className="w-full text-left text-[10px] min-w-[850px]">
-            <thead className="bg-black/30 text-slate-500 font-black uppercase text-[8px] border-b border-slate-800/50 sticky top-0 z-10 backdrop-blur-md">
+      {/* TABELA COM MULTI-SELEÇÃO */}
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
+          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[900px]">
+            <thead className="bg-[#11141d] text-slate-500 font-black uppercase text-[9px] sticky top-0 z-10">
               <tr>
-                <th className="p-4">LOTE ID</th>
-                <th className="p-4">DATA</th>
-                <th className="p-4 text-center">PESO VIVO</th>
-                <th className="p-4 text-center">CARCAÇA</th>
-                <th className="p-4 text-center">REND. (%)</th>
-                <th className="p-4">OBSERVAÇÕES</th>
-                <th className="p-4 text-center">AÇÕES</th>
+                <th className="p-4 border-b border-slate-800/50 w-10">
+                  <button onClick={toggleSelectAll} className="text-slate-500 hover:text-cyan-500 transition-colors">
+                    {selectedIds.length === registos.length && registos.length > 0 ? <CheckSquare size={16}/> : <Square size={16}/>}
+                  </button>
+                </th>
+                <th className="p-4 border-b border-slate-800/50">LOTE</th>
+                <th className="p-4 border-b border-slate-800/50">BRINCO</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">P. VIVO</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">CARCAÇA</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">REND. %</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">AÇÕES</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/30">
+            <tbody className="divide-y divide-slate-800/20">
               {registos.map((r) => {
-                const rendimento = (r.pesoVivoKg > 0) ? ((r.carcacaKg / r.pesoVivoKg) * 100).toFixed(1) : '0.0';
+                const rend = r.pesoVivoKg > 0 ? ((r.carcacaKg / r.pesoVivoKg) * 100).toFixed(1) : '0.0';
+                const isSelected = selectedIds.includes(r.id);
                 return (
-                  <tr key={r.id} className="hover:bg-slate-800/10 transition-colors group">
-                    <td className="p-4 font-black text-cyan-500 uppercase">{r.loteId}</td>
-                    <td className="p-4 text-slate-500 font-bold">{r.dataAbate.split('-').reverse().join('/')}</td>
-                    <td className="p-4 text-center text-white font-bold">{Number(r.pesoVivoKg).toFixed(1)} Kg</td>
-                    <td className="p-4 text-center text-white font-bold">{Number(r.carcacaKg).toFixed(1)} Kg</td>
-                    <td className="p-4 text-center">
-                      <span className="text-emerald-500 font-black bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">{rendimento}%</span>
+                  <tr key={r.id} className={`${isSelected ? 'bg-cyan-500/5' : ''} hover:bg-cyan-500/[0.02] transition-colors`}>
+                    <td className="p-4">
+                      <button onClick={() => toggleSelectOne(r.id)} className={`${isSelected ? 'text-cyan-500' : 'text-slate-700'} transition-colors`}>
+                        {isSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
+                      </button>
                     </td>
-                    <td className="p-4 text-slate-400 uppercase text-[9px] truncate max-w-[200px]">{r.observacoes}</td>
+                    <td className="p-4 font-black text-cyan-500">{r.loteId}</td>
+                    <td className="p-4 text-white font-bold uppercase"><Tag size={10} className="inline mr-1 text-slate-500" />{r.brinco}</td>
+                    <td className="p-4 text-center text-white font-bold">{r.pesoVivoKg} kg</td>
+                    <td className="p-4 text-center text-white font-bold">{r.carcacaKg} kg</td>
                     <td className="p-4 text-center">
-                      <div className="flex justify-center gap-2">
-                        <button onClick={() => { setEditingId(r.id); setFormData({...r}); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-2 text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-all"><Edit3 size={16}/></button>
-                        <button onClick={() => { if(confirm('Eliminar registo?')) deleteDoc(doc(db, 'abates', r.id)) }} className="p-2 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"><Trash2 size={16}/></button>
+                      <span className="text-emerald-500 font-black bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20">{rend}%</span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-1">
+                        <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="p-2 text-slate-500 hover:text-cyan-400 transition-colors"><Edit3 size={14}/></button>
+                        <button onClick={() => { if(confirm('Eliminar?')) deleteDoc(doc(db, 'abates', r.id)) }} className="p-2 text-slate-600 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
                       </div>
                     </td>
                   </tr>
@@ -223,25 +255,6 @@ export default function AbatesPage() {
               })}
             </tbody>
           </table>
-        </div>
-        
-        {/* RODAPÉ RESUMO (Muito útil no telemóvel) */}
-        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex justify-between items-center shrink-0">
-          <div className="flex gap-6">
-            <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Total Cabeças</span>
-              <span className="text-xs font-black text-white">{registos.length} Un.</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Média Rendimento</span>
-              <span className="text-xs font-black text-emerald-400">
-                {registos.length > 0 
-                  ? (registos.reduce((acc, r) => acc + (r.pesoVivoKg > 0 ? (r.carcacaKg/r.pesoVivoKg)*100 : 0), 0) / registos.length).toFixed(1)
-                  : 0}%
-              </span>
-            </div>
-          </div>
-          <Check size={16} className="text-emerald-500 opacity-30" />
         </div>
       </div>
     </div>

@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { 
-  Boxes, FileSpreadsheet, FileText, UploadCloud, Check, Trash2, Edit3, RotateCcw, Plus, Scale, Truck, User
+  collection, addDoc, onSnapshot, query, orderBy, 
+  deleteDoc, doc, updateDoc, writeBatch 
+} from 'firebase/firestore';
+import { 
+  Boxes, FileSpreadsheet, FileText, UploadCloud, Check, Trash2, 
+  Edit3, RotateCcw, Plus, Scale, Truck, User, Square, CheckSquare 
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -11,6 +15,7 @@ import autoTable from 'jspdf-autotable';
 
 export default function LotesPage() {
   const [registos, setRegistos] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -22,7 +27,6 @@ export default function LotesPage() {
     quantidade: '',
     fornecedor: '',
     pesoSaida: '',
-    pesoChegada: '',
     custoAquisicao: '',
     custoTransporte: '',
     status: 'ATIVO'
@@ -38,40 +42,82 @@ export default function LotesPage() {
     return () => unsubscribe();
   }, []);
 
+  const toggleSelectAll = () => {
+    if (selectedIds.length === registos.length && registos.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(registos.map(r => r.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const deleteSelected = async () => {
+    if (!confirm(`Eliminar ${selectedIds.length} lotes selecionados?`)) return;
+    const batch = writeBatch(db);
+    selectedIds.forEach(id => { batch.delete(doc(db, 'lotes', id)); });
+    await batch.commit();
+    setSelectedIds([]);
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        const batch = writeBatch(db);
+        data.forEach((item) => {
+          const newDocRef = doc(collection(db, 'lotes'));
+          batch.set(newDocRef, {
+            loteId: String(item.loteId || 'S/L').toUpperCase(),
+            dataEntrada: item.dataEntrada || new Date().toISOString().split('T')[0],
+            fornecedor: String(item.fornecedor || '').toUpperCase(),
+            tipoAnimal: String(item.tipoAnimal || 'SUÍNO').toUpperCase(),
+            raca: String(item.raca || '').toUpperCase(),
+            quantidade: parseInt(item.quantidade) || 0,
+            pesoSaida: parseFloat(item.pesoSaida) || 0,
+            custoAquisicao: parseFloat(item.custoAquisicao) || 0,
+            custoTransporte: parseFloat(item.custoTransporte) || 0,
+            status: 'ATIVO',
+            createdAt: new Date().toISOString()
+          });
+        });
+        await batch.commit();
+        alert("Importação concluída!");
+      } catch (error) { console.error(error); }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(registos.map(r => ({
-      'LOTE': r.loteId,
-      'DATA': r.dataEntrada,
-      'FORNECEDOR': r.fornecedor,
-      'TIPO': r.tipoAnimal,
-      'QTD': r.quantidade,
-      'AQUISIÇÃO (KZ)': r.custoAquisicao,
-      'TRANSPORTE (KZ)': r.custoTransporte
+      'LOTE': r.loteId, 'DATA': r.dataEntrada, 'FORNECEDOR': r.fornecedor,
+      'TIPO': r.tipoAnimal, 'QTD': r.quantidade, 'AQUISIÇÃO': r.custoAquisicao
     })));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Lotes_Kwanza");
-    XLSX.writeFile(wb, `Lotes_Fazenda_Kwanza_${new Date().getFullYear()}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Lotes");
+    XLSX.writeFile(wb, "Inventario_Lotes.xlsx");
   };
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.setFontSize(16);
-    docPDF.text("FAZENDA KWANZA - INVENTÁRIO DE LOTES", 14, 15);
     autoTable(docPDF, {
-      head: [["LOTE", "DATA", "FORNECEDOR", "TIPO/RAÇA", "QTD", "AQUIS. (KZ)", "TRANSP. (KZ)"]],
+      head: [["LOTE", "DATA", "FORNECEDOR", "TIPO/RAÇA", "QTD", "INVESTIMENTO"]],
       body: registos.map(r => [
-        r.loteId, 
-        r.dataEntrada.split('-').reverse().join('/'), 
-        r.fornecedor.toUpperCase(),
-        `${r.tipoAnimal}/${r.raca}`, 
-        r.quantidade, 
-        Number(r.custoAquisicao || 0).toLocaleString(),
-        Number(r.custoTransporte || 0).toLocaleString()
+        r.loteId, r.dataEntrada, r.fornecedor, `${r.tipoAnimal}/${r.raca}`, 
+        r.quantidade, (Number(r.custoAquisicao) + Number(r.custoTransporte)).toLocaleString()
       ]),
-      startY: 22,
       headStyles: { fillColor: [8, 145, 178] }
     });
-    docPDF.save("Relatorio_Lotes_Kwanza.pdf");
+    docPDF.save("Relatorio_Lotes.pdf");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,11 +126,9 @@ export default function LotesPage() {
       ...formData,
       quantidade: parseInt(formData.quantidade as string) || 0,
       pesoSaida: parseFloat(formData.pesoSaida as string) || 0,
-      pesoChegada: parseFloat(formData.pesoChegada as string) || 0,
       custoAquisicao: parseFloat(formData.custoAquisicao as string) || 0,
       custoTransporte: parseFloat(formData.custoTransporte as string) || 0,
     };
-
     if (editingId) {
       await updateDoc(doc(db, 'lotes', editingId), payload);
       setEditingId(null);
@@ -95,171 +139,116 @@ export default function LotesPage() {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6 pb-24 lg:pb-0">
-      
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/50 pb-6">
+    <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
         <div className="flex items-center gap-4">
-          <div className="bg-cyan-500/10 p-3 rounded-2xl border border-cyan-500/20 shadow-inner">
-            <Boxes className="text-cyan-500" size={32} />
-          </div>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none">Lotes</h1>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mt-1">Gestão de Efetivo</p>
-          </div>
+          <Boxes className="text-cyan-500" size={28} />
+          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight">Lotes</h1>
         </div>
 
-        <div className="flex flex-wrap gap-2 w-full md:w-auto bg-[#161922] p-1.5 rounded-2xl border border-slate-800 shadow-xl">
-          <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" />
-          <button onClick={() => fileInputRef.current?.click()} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all">
-            <UploadCloud size={14} className="text-cyan-500" /> Importar
+        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+          <input type="file" ref={fileInputRef} className="hidden" onChange={handleImportExcel} accept=".xlsx, .xls" />
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+            <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR
           </button>
-          <button onClick={exportToExcel} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all">
-            <FileSpreadsheet size={14} className="text-emerald-400" /> Excel
+          <button onClick={exportToExcel} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+            <FileSpreadsheet size={14} className="text-emerald-500" /> EXCEL
           </button>
-          <button onClick={exportToPDF} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all">
-            <FileText size={14} className="text-red-400" /> PDF
+          <button onClick={exportToPDF} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+            <FileText size={14} className="text-red-500" /> PDF
           </button>
-        </div>
-      </div>
-
-      {/* FORMULÁRIO RESPONSIVO */}
-      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 p-4 md:p-6 shadow-2xl">
-        <form onSubmit={handleSubmit} className="flex flex-col md:grid md:grid-cols-12 gap-4">
           
-          <div className="md:col-span-2 space-y-1 w-full">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Cód. Lote</label>
-            <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-cyan-400 font-bold outline-none text-xs uppercase" placeholder="LOTE ID" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
-          </div>
+          {selectedIds.length > 0 && (
+            <button onClick={deleteSelected} className="flex-1 lg:flex-none bg-red-600/20 border border-red-500/50 px-4 py-2 rounded-lg text-[10px] font-black text-red-500 flex items-center justify-center gap-2 hover:bg-red-600 hover:text-white transition-all">
+              <Trash2 size={14} /> ELIMINAR ({selectedIds.length})
+            </button>
+          )}
+        </div>
+      </header>
 
-          <div className="md:col-span-3 space-y-1 w-full">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Fornecedor / Origem</label>
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0">
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:flex md:flex-nowrap gap-4 items-end">
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Fornecedor</label>
             <div className="relative">
               <User className="absolute left-3 top-3 text-slate-700" size={14} />
-              <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-white font-bold outline-none text-xs uppercase" placeholder="NOME DO FORNECEDOR" value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value.toUpperCase()})} />
+              <input required className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-lg text-white text-xs font-bold outline-none uppercase" value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value.toUpperCase()})} />
             </div>
           </div>
 
-          <div className="md:col-span-4 space-y-1 w-full">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Tipo / Raça</label>
-            <div className="flex gap-2">
-              <select className="bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs" value={formData.tipoAnimal} onChange={e => setFormData({...formData, tipoAnimal: e.target.value})}>
-                <option value="SUÍNO">SUÍNO</option>
-                <option value="BOVINO">BOVINO</option>
-              </select>
-              <input className="flex-1 bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs uppercase" placeholder="RAÇA / LINHAGEM" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value.toUpperCase()})} />
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Peso Méd. (kg)</label>
+            <div className="relative">
+              <Scale className="absolute left-3 top-3 text-cyan-900" size={14} />
+              <input type="number" step="0.1" className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-lg text-white font-black outline-none text-xs" value={formData.pesoSaida} onChange={e => setFormData({...formData, pesoSaida: e.target.value})} />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:col-span-3 gap-4 w-full">
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-slate-500 uppercase px-1">Qtd</label>
-              <input type="number" required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-black outline-none text-xs" value={formData.quantidade} onChange={e => setFormData({...formData, quantidade: e.target.value})} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-slate-500 uppercase px-1">Peso Méd. (kg)</label>
-              <div className="relative">
-                <Scale className="absolute left-3 top-3 text-cyan-900" size={14} />
-                <input type="number" step="0.1" className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-cyan-500 font-black outline-none text-xs" value={formData.pesoSaida} onChange={e => setFormData({...formData, pesoSaida: e.target.value})} />
-              </div>
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Transporte (Kz)</label>
+            <div className="relative">
+              <Truck className="absolute left-3 top-3 text-emerald-900" size={14} />
+              <input type="number" className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-lg text-white font-black outline-none text-xs" value={formData.custoTransporte} onChange={e => setFormData({...formData, custoTransporte: e.target.value})} />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:col-span-4 gap-4 w-full">
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-emerald-500 uppercase px-1">Custo Aquisição (Kz)</label>
-              <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.custoAquisicao} onChange={e => setFormData({...formData, custoAquisicao: e.target.value})} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-emerald-500 uppercase px-1">Transp. (Kz)</label>
-              <div className="relative">
-                <Truck className="absolute left-3 top-3 text-emerald-900" size={14} />
-                <input type="number" className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.custoTransporte} onChange={e => setFormData({...formData, custoTransporte: e.target.value})} />
-              </div>
-            </div>
-          </div>
-
-          <div className="md:col-span-2 space-y-1 w-full">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Data Entrada</label>
-            <input type="date" required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs" value={formData.dataEntrada} onChange={e => setFormData({...formData, dataEntrada: e.target.value})} />
-          </div>
-
-          <div className="md:col-span-3 flex gap-2 w-full pt-2">
-            <button type="submit" className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-4 rounded-xl transition-all shadow-lg uppercase flex items-center justify-center gap-2 active:scale-95">
-              {editingId ? <Check size={16} /> : <Plus size={16} />} 
-              {editingId ? 'Atualizar' : 'Criar Lote'}
+          <div className="flex gap-2 shrink-0">
+            <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[11px] px-8 py-3.5 rounded-xl uppercase flex items-center gap-2 shadow-lg transition-all">
+              {editingId ? <Check size={18} /> : <Plus size={18} />} GRAVAR
             </button>
-            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-slate-800 p-4 rounded-xl text-slate-500 hover:text-white transition-all">
-              <RotateCcw size={16}/>
+            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-slate-800 p-3.5 rounded-xl text-slate-500 hover:text-white transition-all">
+              <RotateCcw size={18}/>
             </button>
           </div>
         </form>
       </div>
 
-      {/* TABELA COM COLUNAS COMPLETAS E SCROLL HORIZONTAL */}
-      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
-        <div className="overflow-x-auto custom-scrollbar flex-1"> 
-          <table className="w-full text-left text-[10px] min-w-[1100px]">
-            <thead className="bg-black/30 text-slate-500 font-black uppercase text-[8px] border-b border-slate-800/50 sticky top-0 z-10 backdrop-blur-md">
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
+          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1000px]">
+            <thead className="bg-[#11141d] text-slate-500 font-black uppercase text-[9px] sticky top-0 z-10">
               <tr>
-                <th className="p-4">CÓDIGO LOTE</th>
-                <th className="p-4">DATA ENTRADA</th>
-                <th className="p-4">FORNECEDOR</th>
-                <th className="p-4">ESPECIFICAÇÃO</th>
-                <th className="p-4 text-center">EFETIVO</th>
-                <th className="p-4 text-center">P. MÉDIO</th>
-                <th className="p-4 text-right">AQUISIÇÃO (KZ)</th>
-                <th className="p-4 text-right">TRANSP. (KZ)</th>
-                <th className="p-4 text-center">AÇÕES</th>
+                <th className="p-4 border-b border-slate-800/50 w-10">
+                  <button onClick={toggleSelectAll} className="text-slate-500 hover:text-cyan-500">
+                    {selectedIds.length === registos.length && registos.length > 0 ? <CheckSquare size={16}/> : <Square size={16}/>}
+                  </button>
+                </th>
+                <th className="p-4 border-b border-slate-800/50">CÓDIGO LOTE</th>
+                <th className="p-4 border-b border-slate-800/50">DATA</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">EFETIVO</th>
+                <th className="p-4 text-right border-b border-slate-800/50">INVESTIMENTO (KZ)</th>
+                <th className="p-4 text-center border-b border-slate-800/50">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/20">
-              {registos.map((r) => (
-                <tr key={r.id} className="hover:bg-cyan-500/[0.02] transition-colors group">
-                  <td className="p-4 font-black text-cyan-500 uppercase text-xs">{r.loteId}</td>
-                  <td className="p-4 text-slate-400 font-bold">{r.dataEntrada?.split('-').reverse().join('/')}</td>
-                  <td className="p-4 text-slate-300 font-bold uppercase">{r.fornecedor || '---'}</td>
-                  <td className="p-4">
-                    <div className="text-white font-black uppercase text-[9px]">{r.tipoAnimal}</div>
-                    <div className="text-slate-500 uppercase text-[7px] font-bold tracking-widest">{r.raca || 'N/A'}</div>
-                  </td>
-                  <td className="p-4 text-center text-white font-black text-sm">{r.quantidade} <span className="text-[8px] text-slate-600">CAB</span></td>
-                  <td className="p-4 text-center text-cyan-400 font-black">{Number(r.pesoSaida || 0).toFixed(1)} Kg</td>
-                  <td className="p-4 text-right font-black text-white">{Number(r.custoAquisicao || 0).toLocaleString()}</td>
-                  <td className="p-4 text-right font-black text-emerald-500">{Number(r.custoTransporte || 0).toLocaleString()}</td>
-                  <td className="p-4 text-center">
-                    <div className="flex justify-center gap-2">
-                      <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="p-2 bg-slate-800/40 rounded-lg text-slate-500 hover:text-cyan-400 transition-all"><Edit3 size={16}/></button>
-                      <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="p-2 bg-slate-800/40 rounded-lg text-slate-600 hover:text-red-500 transition-all"><Trash2 size={16}/></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {registos.map((r) => {
+                const isSelected = selectedIds.includes(r.id);
+                return (
+                  <tr key={r.id} className={`${isSelected ? 'bg-cyan-500/5' : ''} hover:bg-cyan-500/[0.02] transition-colors`}>
+                    <td className="p-4">
+                      <button onClick={() => toggleSelectOne(r.id)} className={isSelected ? 'text-cyan-500' : 'text-slate-700'}>
+                        {isSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
+                      </button>
+                    </td>
+                    <td className="p-4 font-black text-cyan-500 uppercase">{r.loteId}</td>
+                    <td className="p-4 text-slate-400 font-bold">{r.dataEntrada?.split('-').reverse().join('/')}</td>
+                    <td className="p-4 text-center text-white font-black">{r.quantidade} CAB</td>
+                    <td className="p-4 text-right font-black text-emerald-500">
+                      {(Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)).toLocaleString()}
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-1">
+                        <button onClick={() => { setEditingId(r.id); setFormData({...r}); }} className="p-2 text-slate-500 hover:text-cyan-400"><Edit3 size={14}/></button>
+                        <button onClick={() => { if(confirm('Eliminar Lote?')) deleteDoc(doc(db, 'lotes', r.id)) }} className="p-2 text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
-        
-        {/* RODAPÉ RESUMO FINANCEIRO */}
-        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4 px-8">
-          <div className="flex gap-10">
-            <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Efetivo Total</span>
-              <span className="text-sm font-black text-white">{registos.reduce((acc, r) => acc + (Number(r.quantidade) || 0), 0)} Cabeças</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Investimento Total</span>
-              <span className="text-sm font-black text-cyan-500">
-                {registos.reduce((acc, r) => acc + (Number(r.custoAquisicao || 0) + Number(r.custoTransporte || 0)), 0).toLocaleString()} Kz
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 opacity-30">
-            <Check size={14} className="text-cyan-500" />
-            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Inventário Atualizado</p>
-          </div>
         </div>
       </div>
     </div>
   );
 }
-
