@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, onSnapshot, query, deleteDoc, doc, orderBy } from 'firebase/firestore';
+import { 
+  collection, addDoc, onSnapshot, query, orderBy, 
+  deleteDoc, doc, updateDoc, writeBatch 
+} from 'firebase/firestore';
 import { 
   ShoppingCart, Plus, Trash2, Check, UploadCloud, 
-  FileSpreadsheet, FileText, RotateCcw, TrendingUp, User, Scale
+  FileSpreadsheet, FileText, RotateCcw, TrendingUp, 
+  User, Scale, Square, CheckSquare, Fingerprint
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -12,15 +16,19 @@ import autoTable from 'jspdf-autotable';
 
 export default function VendasPage() {
   const [vendas, setVendas] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const initialForm = {
     codigoLote: '',
+    brinco: '',
     dataVenda: new Date().toISOString().split('T')[0],
     cliente: '',
-    produto: 'BOVINO VIVO',
+    produto: 'SUÍNO VIVO',
     pesoKg: '',
-    precoKz: ''
+    precoKz: '',
+    observacoes: ''
   };
 
   const [formData, setFormData] = useState(initialForm);
@@ -28,61 +36,38 @@ export default function VendasPage() {
   // 1. Listeners do Firebase
   useEffect(() => {
     const q = query(collection(db, 'vendas'), orderBy('dataVenda', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setVendas(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setVendas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, []);
 
-  // 2. Cálculos Globais (Usados no ecrã e nos exports para evitar erros 6133)
-  const faturamentoTotal = vendas.reduce((acc, v) => acc + (Number(v.pesoKg) * Number(v.precoKz) || 0), 0);
-  const pesoTotal = vendas.reduce((acc, v) => acc + (Number(v.pesoKg) || 0), 0);
-
-  // 3. Exportação Excel
-  const exportToExcel = () => {
-    const data = vendas.map(v => ({
-      Lote: v.codigoLote,
-      Data: v.dataVenda,
-      Cliente: v.cliente,
-      Produto: v.produto,
-      'Peso (Kg)': v.pesoKg,
-      'Preço (Kz/Kg)': v.precoKz,
-      'Total (Kz)': Number(v.pesoKg) * Number(v.precoKz)
-    }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Vendas_Kwanza");
-    XLSX.writeFile(wb, `Comercial_Kwanza_${new Date().getFullYear()}.xlsx`);
+  // --- LÓGICA DE SELEÇÃO ---
+  const toggleSelectAll = () => {
+    if (selectedIds.length === vendas.length && vendas.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(vendas.map(v => v.id));
+    }
   };
 
-  // 4. Exportação PDF
-  const exportToPDF = () => {
-    const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.setFontSize(18);
-    docPDF.text("FAZENDA KWANZA - RELATÓRIO COMERCIAL", 14, 15);
-    
-    autoTable(docPDF, {
-      head: [["LOTE", "DATA", "CLIENTE", "PRODUTO", "PESO (KG)", "PREÇO (KZ)", "TOTAL (KZ)"]],
-      body: vendas.map(v => [
-        v.codigoLote,
-        v.dataVenda.split('-').reverse().join('/'),
-        v.cliente.toUpperCase(),
-        v.produto.toUpperCase(),
-        `${v.pesoKg} Kg`,
-        `${Number(v.precoKz).toLocaleString()} Kz`,
-        `${(Number(v.pesoKg) * Number(v.precoKz)).toLocaleString()} Kz`
-      ]),
-      startY: 25,
-      headStyles: { fillColor: [16, 185, 129] }
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const deleteSelected = async () => {
+    if (!confirm(`Eliminar ${selectedIds.length} vendas selecionadas?`)) return;
+    const batch = writeBatch(db);
+    selectedIds.forEach(id => {
+      batch.delete(doc(db, 'vendas', id));
     });
-
-    const finalY = (docPDF as any).lastAutoTable.finalY + 10;
-    docPDF.setFontSize(12);
-    docPDF.text(`FATURAMENTO TOTAL: ${faturamentoTotal.toLocaleString()} Kz`, 14, finalY + 5);
-    docPDF.save("Vendas_Fazenda_Kwanza.pdf");
+    await batch.commit();
+    setSelectedIds([]);
   };
 
-  // 5. Importação Excel
+  // 2. Importação Excel Inteligente
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -91,162 +76,208 @@ export default function VendasPage() {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const dataRaw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        for (const item of dataRaw as any[]) {
-          await addDoc(collection(db, 'vendas'), { 
+        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        const batch = writeBatch(db);
+        
+        data.forEach((item: any) => {
+          const newDocRef = doc(collection(db, 'vendas'));
+          batch.set(newDocRef, {
             codigoLote: String(item.codigoLote || 'N/A').toUpperCase(),
+            brinco: String(item.brinco || '').toUpperCase(),
             dataVenda: item.dataVenda instanceof Date ? item.dataVenda.toISOString().split('T')[0] : (item.dataVenda || new Date().toISOString().split('T')[0]),
             cliente: String(item.cliente || 'CLIENTE GERAL').toUpperCase(),
             produto: String(item.produto || 'CARNE').toUpperCase(),
             pesoKg: parseFloat(item.pesoKg) || 0,
             precoKz: parseFloat(item.precoKz) || 0,
-            createdAt: new Date().toISOString() 
+            createdAt: new Date().toISOString()
           });
-        }
-      } catch (err) { console.error("Erro na importação:", err); }
+        });
+        await batch.commit();
+        alert("Vendas importadas!");
+      } catch (err) { console.error(err); }
     };
     reader.readAsBinaryString(file);
   };
 
+  // 3. Exportações
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(vendas.map(v => ({
+      Lote: v.codigoLote, Brinco: v.brinco, Data: v.dataVenda, Cliente: v.cliente,
+      Produto: v.produto, 'Peso (Kg)': v.pesoKg, 'Preço (Kz)': v.precoKz, 'Total': v.pesoKg * v.precoKz
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Vendas");
+    XLSX.writeFile(wb, "Relatorio_Vendas_Fazenda.xlsx");
+  };
+
+  const exportToPDF = () => {
+    const docPDF = new jsPDF('l', 'mm', 'a4');
+    docPDF.text("Fazenda Kwanza - Relatório Comercial", 14, 15);
+    autoTable(docPDF, {
+      head: [["LOTE", "BRINCO", "DATA", "CLIENTE", "PESO", "PREÇO/KG", "TOTAL"]],
+      body: vendas.map(v => [
+        v.codigoLote, v.brinco || '---', v.dataVenda, v.cliente, 
+        `${v.pesoKg} Kg`, `${Number(v.precoKz).toLocaleString()} Kz`, 
+        `${(v.pesoKg * v.precoKz).toLocaleString()} Kz`
+      ]),
+      startY: 22,
+      headStyles: { fillColor: [16, 185, 129] }
+    });
+    docPDF.save("Vendas_Comercial.pdf");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addDoc(collection(db, 'vendas'), {
+    const payload = {
       ...formData,
       pesoKg: parseFloat(formData.pesoKg as string) || 0,
       precoKz: parseFloat(formData.precoKz as string) || 0,
-      createdAt: new Date().toISOString()
-    });
+    };
+
+    if (editingId) {
+      await updateDoc(doc(db, 'vendas', editingId), payload);
+      setEditingId(null);
+    } else {
+      await addDoc(collection(db, 'vendas'), { ...payload, createdAt: new Date().toISOString() });
+    }
     setFormData(initialForm);
   };
 
+  const faturamentoTotal = vendas.reduce((acc, v) => acc + (v.pesoKg * v.precoKz), 0);
+
   return (
-    <div className="space-y-4 md:space-y-6 pb-24 lg:pb-0">
+    <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
       
-      {/* HEADER ADAPTATIVO */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/50 pb-6">
-        <div className="flex items-center gap-4">
-          <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 shadow-inner">
-            <ShoppingCart className="text-emerald-500" size={32} />
-          </div>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none">Vendas</h1>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mt-1">Fazenda Kwanza</p>
-          </div>
+      {/* HEADER */}
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <ShoppingCart className="text-emerald-500" size={32} />
+          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">Vendas</h1>
         </div>
 
-        <div className="flex flex-wrap gap-2 w-full md:w-auto bg-[#161922] p-1.5 rounded-2xl border border-slate-800 shadow-xl">
+        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
           <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
-            <UploadCloud size={14} className="text-cyan-500" /> Importar
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800">
+            <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR
           </button>
-          <button onClick={exportToExcel} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
-            <FileSpreadsheet size={14} className="text-emerald-400" /> Excel
+          <button onClick={exportToExcel} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800">
+            <FileSpreadsheet size={14} className="text-emerald-500" /> EXCEL
           </button>
-          <button onClick={exportToPDF} className="flex-1 md:flex-none bg-[#1e293b] text-slate-300 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800 border border-slate-700/50 transition-all active:scale-95">
-            <FileText size={14} className="text-red-400" /> PDF
+          <button onClick={exportToPDF} className="flex-1 lg:flex-none bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800">
+            <FileText size={14} className="text-red-500" /> PDF
           </button>
-        </div>
-      </div>
-
-      {/* FORMULÁRIO RESPONSIVO */}
-      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 p-4 md:p-6 shadow-2xl">
-        <form onSubmit={handleSubmit} className="flex flex-col md:grid md:grid-cols-12 gap-4 items-end">
           
-          <div className="md:col-span-2 space-y-1 w-full">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Lote Saída</label>
-            <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs uppercase focus:border-emerald-500/50 transition-all" placeholder="LOTE ID" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
+          {selectedIds.length > 0 && (
+            <button onClick={deleteSelected} className="flex-1 lg:flex-none bg-red-600/20 border border-red-500/50 px-4 py-2 rounded-lg text-[10px] font-black text-red-500 flex items-center justify-center gap-2 hover:bg-red-600 hover:text-white transition-all">
+              <Trash2 size={14} /> ELIMINAR ({selectedIds.length})
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* FORMULÁRIO */}
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-2xl">
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 lg:flex lg:flex-nowrap gap-4 items-end">
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Lote</label>
+            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-xl text-white font-bold outline-none text-xs uppercase" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
           </div>
 
-          <div className="md:col-span-3 space-y-1 w-full">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">Cliente</label>
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Brinco</label>
+            <div className="relative">
+              <Fingerprint className="absolute left-3 top-3 text-slate-700" size={14} />
+              <input className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-xl text-white font-bold outline-none text-xs uppercase" placeholder="OPCIONAL" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value.toUpperCase()})} />
+            </div>
+          </div>
+
+          <div className="space-y-1 flex-[2]">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Cliente</label>
             <div className="relative">
               <User className="absolute left-3 top-3 text-slate-700" size={14} />
-              <input required className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-white font-bold outline-none text-xs uppercase" placeholder="COMPRADOR" value={formData.cliente} onChange={e => setFormData({...formData, cliente: e.target.value.toUpperCase()})} />
+              <input required className="w-full bg-[#0d0f14] border border-slate-800 p-3 pl-10 rounded-xl text-white font-bold outline-none text-xs uppercase" value={formData.cliente} onChange={e => setFormData({...formData, cliente: e.target.value.toUpperCase()})} />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:col-span-4 gap-4 w-full">
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-emerald-500 uppercase px-1">Peso (Kg)</label>
-              <div className="relative">
-                <Scale className="absolute left-3 top-3 text-emerald-900" size={14} />
-                <input type="number" step="0.1" required className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: e.target.value})} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-emerald-500 uppercase px-1">Kz/Kg</label>
-              <div className="relative">
-                <TrendingUp className="absolute left-3 top-3 text-emerald-900" size={14} />
-                <input type="number" required className="w-full bg-[#0f121a] border border-slate-800 p-3 pl-10 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.precoKz} onChange={e => setFormData({...formData, precoKz: e.target.value})} />
-              </div>
-            </div>
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-emerald-500 uppercase px-1">Peso (Kg)</label>
+            <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-3 rounded-xl text-emerald-500 font-black outline-none text-xs" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: e.target.value})} />
           </div>
 
-          <div className="md:col-span-3 flex gap-2 w-full pt-2 md:pt-0">
-            <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] py-3.5 rounded-xl transition-all shadow-lg uppercase flex items-center justify-center gap-2 active:scale-95">
-              <Plus size={16} /> Confirmar
-            </button>
-            <button type="button" onClick={() => setFormData(initialForm)} className="bg-slate-800 p-3.5 rounded-xl text-slate-500 hover:text-white transition-all">
-              <RotateCcw size={16}/>
-            </button>
-          </div>
+          <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-8 py-3.5 rounded-xl uppercase flex items-center justify-center gap-2 shadow-lg transition-all shrink-0">
+            {editingId ? <Check size={18} /> : <Plus size={18} />} GRAVAR
+          </button>
         </form>
       </div>
 
-      {/* TABELA COM SCROLL HORIZONTAL */}
-      <div className="bg-[#161922] rounded-3xl md:rounded-[2rem] border border-slate-800/50 shadow-2xl overflow-hidden flex flex-col">
-        <div className="overflow-x-auto custom-scrollbar flex-1"> 
-          <table className="w-full text-left text-[10px] min-w-[900px]">
-            <thead className="bg-black/30 text-slate-500 font-black uppercase text-[8px] border-b border-slate-800/50 sticky top-0 z-10 backdrop-blur-md">
+      {/* TABELA COM MULTI-SELEÇÃO */}
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
+          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[950px]">
+            <thead className="bg-[#11141d] text-slate-500 font-black uppercase text-[9px] sticky top-0 z-10">
               <tr>
-                <th className="p-4">LOTE</th>
-                <th className="p-4">DATA</th>
-                <th className="p-4">CLIENTE</th>
-                <th className="p-4 text-center">PESO</th>
-                <th className="p-4 text-center">PREÇO/KG</th>
-                <th className="p-4 text-center">TOTAL VENDA</th>
-                <th className="p-4 text-center">AÇÕES</th>
+                <th className="p-4 border-b border-slate-800/50 w-10">
+                  <button onClick={toggleSelectAll} className="text-slate-500 hover:text-emerald-500 transition-colors">
+                    {selectedIds.length === vendas.length && vendas.length > 0 ? <CheckSquare size={16}/> : <Square size={16}/>}
+                  </button>
+                </th>
+                <th className="p-4 border-b border-slate-800/50">LOTE</th>
+                <th className="p-4 border-b border-slate-800/50">BRINCO</th>
+                <th className="p-4 border-b border-slate-800/50">DATA</th>
+                <th className="p-4 border-b border-slate-800/50">CLIENTE</th>
+                <th className="p-4 text-center border-b border-slate-800/50">PESO</th>
+                <th className="p-4 text-right border-b border-slate-800/50">TOTAL (KZ)</th>
+                <th className="p-4 text-center border-b border-slate-800/50">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/20">
-              {vendas.map((v) => (
-                <tr key={v.id} className="hover:bg-emerald-500/[0.02] transition-colors group">
-                  <td className="p-4 font-black text-cyan-500 uppercase">{v.codigoLote}</td>
-                  <td className="p-4 text-slate-500 font-bold">{v.dataVenda?.split('-').reverse().join('/')}</td>
-                  <td className="p-4 text-white font-black uppercase text-[9px]">{v.cliente}</td>
-                  <td className="p-4 text-center text-emerald-400 font-black">{v.pesoKg} Kg</td>
-                  <td className="p-4 text-center text-emerald-500/80 font-bold">{Number(v.precoKz).toLocaleString()} Kz</td>
-                  <td className="p-4 text-center">
-                    <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-lg font-black border border-emerald-500/10 group-hover:border-emerald-500/30 transition-all">
-                      {(Number(v.pesoKg) * Number(v.precoKz)).toLocaleString()} Kz
-                    </span>
-                  </td>
-                  <td className="p-4 text-center">
-                    <button onClick={() => { if(confirm('Eliminar venda?')) deleteDoc(doc(db, 'vendas', v.id)) }} className="p-2 text-slate-600 hover:text-red-500 transition-all rounded-lg hover:bg-red-500/10">
-                      <Trash2 size={16}/>
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {vendas.map((v) => {
+                const isSelected = selectedIds.includes(v.id);
+                return (
+                  <tr key={v.id} className={`${isSelected ? 'bg-emerald-500/5' : ''} hover:bg-emerald-500/[0.02] transition-colors group`}>
+                    <td className="p-4">
+                      <button onClick={() => toggleSelectOne(v.id)} className={`${isSelected ? 'text-emerald-500' : 'text-slate-700'} transition-colors`}>
+                        {isSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
+                      </button>
+                    </td>
+                    <td className="p-4 font-black text-cyan-500 uppercase">{v.codigoLote}</td>
+                    <td className="p-4 text-white font-bold uppercase">{v.brinco || <span className="text-slate-700 italic text-[9px]">LOTE</span>}</td>
+                    <td className="p-4 text-slate-400 font-bold">{v.dataVenda?.split('-').reverse().join('/')}</td>
+                    <td className="p-4 text-white font-black uppercase text-[9px]">{v.cliente}</td>
+                    <td className="p-4 text-center text-emerald-400 font-black">{v.pesoKg} Kg</td>
+                    <td className="p-4 text-right">
+                      <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-lg font-black border border-emerald-500/10">
+                        {(v.pesoKg * v.precoKz).toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-1">
+                        <button onClick={() => { setEditingId(v.id); setFormData({...v}); }} className="p-2 text-slate-500 hover:text-cyan-400"><Edit3 size={14}/></button>
+                        <button onClick={() => { if(confirm('Eliminar venda?')) deleteDoc(doc(db, 'vendas', v.id)) }} className="p-2 text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        
-        {/* RODAPÉ FINANCEIRO */}
-        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex gap-8">
+
+        {/* FOOTER FINANCEIRO */}
+        <div className="p-4 bg-black/40 border-t border-slate-800/50 flex justify-between items-center shrink-0">
+          <div className="flex gap-10 px-4">
             <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Peso Escoado</span>
-              <span className="text-xs font-black text-emerald-400">{pesoTotal.toLocaleString()} Kg</span>
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Peso Total Escoado</span>
+              <span className="text-sm font-black text-white">
+                {vendas.reduce((acc, v) => acc + (Number(v.pesoKg) || 0), 0).toLocaleString()} Kg
+              </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Faturamento</span>
-              <span className="text-sm font-black text-emerald-500">{faturamentoTotal.toLocaleString()} Kz</span>
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Faturamento Acumulado</span>
+              <span className="text-sm font-black text-emerald-500">
+                {faturamentoTotal.toLocaleString()} Kz
+              </span>
             </div>
-          </div>
-          <div className="flex items-center gap-2 opacity-30">
-            <Check size={14} className="text-emerald-500" />
-            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Dados Comercializados</p>
           </div>
         </div>
       </div>
