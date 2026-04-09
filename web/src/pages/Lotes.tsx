@@ -7,7 +7,7 @@ import {
 import { 
   Package, Trash2, UploadCloud, 
   Edit3, FileText, Check, X, FileSpreadsheet,
-  Square, CheckSquare
+  Square, CheckSquare, Layers
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -54,7 +54,8 @@ export default function LotesPage() {
     setSelectedIds([]);
   };
 
-  // Cálculos (Corrigindo erro 6133 ao usá-los no rodapé)
+  // Cálculos do Resumo Final
+  const totalLotes = lotes.length;
   const totalAnimais = lotes.reduce((acc, l) => acc + (Number(l.quantidade) || 0), 0);
   const custoTotalGeral = lotes.reduce((acc, l) => acc + (Number(l.custoAquisicao || 0) + Number(l.custoTransporte || 0)), 0);
 
@@ -78,31 +79,43 @@ export default function LotesPage() {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws);
         const batch = writeBatch(db);
+
         data.forEach((item: any) => {
+          // Normalização de chaves para evitar erros de digitação no Excel
+          const cleanItem: any = {};
+          Object.keys(item).forEach(key => {
+            const cleanKey = key.trim().replace(/\s+/g, '');
+            cleanItem[cleanKey] = item[key];
+          });
+
           const newDocRef = doc(collection(db, 'lotes'));
+          
           let dEntrada = new Date().toISOString().split('T')[0];
-          if (item.dataEntrada) {
-            const d = new Date(item.dataEntrada);
+          if (cleanItem.dataEntrada) {
+            const d = new Date(cleanItem.dataEntrada);
             if (!isNaN(d.getTime())) dEntrada = d.toISOString().split('T')[0];
           }
+
           batch.set(newDocRef, {
-            codigoLote: String(item.codigoLote || 'N/A').toUpperCase(),
-            tipo: String(item.tipo || 'SUINO').toUpperCase(),
-            raca: String(item.raca || '').toUpperCase(),
-            quantidade: Number(item.quantidade) || 0,
-            fornecedor: String(item.fornecedor || '').toUpperCase(),
+            codigoLote: String(cleanItem.codigoLote || 'N/A').toUpperCase(),
+            tipo: String(cleanItem.tipo || 'SUINO').toUpperCase(),
+            raca: String(cleanItem.raca || '').toUpperCase(),
+            quantidade: Number(cleanItem.quantidade) || 0,
+            fornecedor: String(cleanItem.fornecedor || '').toUpperCase(),
             dataEntrada: dEntrada,
-            pesoInicialMedio: Number(item.pesoInicialMedio) || 0,
-            pesoFinalTransporte: Number(item.pesoFinalTransporte) || 0,
-            custoTransporte: Number(item.custoTransporte) || 0,
-            custoAquisicao: Number(item.custoAquisicao) || 0,
+            pesoInicialMedio: Number(cleanItem.pesoInicialMedio) || 0,
+            pesoFinalTransporte: Number(cleanItem.pesoFinalTransporte) || 0,
+            custoTransporte: Number(cleanItem.custoTransporte) || 0,
+            custoAquisicao: Number(cleanItem.custoAquisicao) || 0,
             createdAt: new Date().toISOString()
           });
         });
         await batch.commit();
         alert("Importação Concluída!");
+        if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) { alert("Erro ao importar."); }
     };
     reader.readAsBinaryString(file);
@@ -113,7 +126,9 @@ export default function LotesPage() {
       Lote: l.codigoLote,
       Tipo: l.tipo,
       Qtd: l.quantidade,
-      Custo: l.custoAquisicao
+      CustoAquisicao: l.custoAquisicao,
+      Transporte: l.custoTransporte,
+      Data: l.dataEntrada
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Lotes");
@@ -122,21 +137,32 @@ export default function LotesPage() {
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.text("FAZENDA KWANZA - LOTES", 14, 15);
+    docPDF.text("FAZENDA KWANZA - RELATÓRIO DE LOTES", 14, 15);
     autoTable(docPDF, {
-      head: [["LOTE", "TIPO", "QTD", "DATA"]],
-      body: lotes.map(l => [l.codigoLote, l.tipo, l.quantidade, formatDateDisplay(l.dataEntrada)]),
-      startY: 20
+      head: [["LOTE", "TIPO", "FORNECEDOR", "QTD", "DATA", "TOTAL (KZ)"]],
+      body: lotes.map(l => [
+        l.codigoLote, 
+        l.tipo, 
+        l.fornecedor, 
+        l.quantidade, 
+        formatDateDisplay(l.dataEntrada),
+        (Number(l.custoAquisicao || 0) + Number(l.custoTransporte || 0)).toLocaleString()
+      ]),
+      startY: 20,
+      headStyles: { fillColor: [16, 185, 129] }
     });
-    docPDF.save("Lotes.pdf");
+    docPDF.save("Lotes_Kwanza.pdf");
   };
 
   const handleSaveEdit = async () => {
     if (editingId && editValue) {
       await updateDoc(doc(db, 'lotes', editingId), {
         ...editValue,
+        quantidade: Number(editValue.quantidade),
         pesoInicialMedio: Number(editValue.pesoInicialMedio),
-        pesoFinalTransporte: Number(editValue.pesoFinalTransporte)
+        pesoFinalTransporte: Number(editValue.pesoFinalTransporte),
+        custoAquisicao: Number(editValue.custoAquisicao),
+        custoTransporte: Number(editValue.custoTransporte)
       });
       setEditingId(null);
     }
@@ -151,18 +177,18 @@ export default function LotesPage() {
         </div>
         <div className="flex gap-2">
           {selectedIds.length > 0 && (
-            <button onClick={deleteSelected} className="bg-red-600/20 border border-red-500/50 px-3 py-2 rounded-lg text-[10px] font-black text-red-500 flex items-center gap-2">
+            <button onClick={deleteSelected} className="bg-red-600 px-3 py-2 rounded-lg text-[10px] font-black text-white flex items-center gap-2">
               <Trash2 size={14} /> ELIMINAR ({selectedIds.length})
             </button>
           )}
-          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase tracking-tighter">
-            <UploadCloud size={14} className="text-cyan-500" /> Importar
+          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".xlsx, .xls" />
+          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-all uppercase tracking-tighter">
+            <UploadCloud size={14} className="text-cyan-500" /> Importar Excel
           </button>
-          <button onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase tracking-tighter">
+          <button onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-all uppercase tracking-tighter">
             <FileSpreadsheet size={14} className="text-emerald-500" /> Excel
           </button>
-          <button onClick={exportToPDF} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase tracking-tighter">
+          <button onClick={exportToPDF} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-all uppercase tracking-tighter">
             <FileText size={14} className="text-red-500" /> PDF
           </button>
         </div>
@@ -182,12 +208,12 @@ export default function LotesPage() {
                 <th className="p-4 border-b border-slate-800/50 text-center">TIPO</th>
                 <th className="p-4 border-b border-slate-800/50">RAÇA</th>
                 <th className="p-4 border-b border-slate-800/50">FORNECEDOR</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">DATA</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">DATA ENTRADA</th>
                 <th className="p-4 border-b border-slate-800/50 text-center">QTD</th>
                 <th className="p-4 border-b border-slate-800/50 text-center">PESO INICIAL</th>
                 <th className="p-4 border-b border-slate-800/50 text-center">PESO TRANSP.</th>
                 <th className="p-4 border-b border-slate-800/50 text-right text-emerald-500">CUSTO AQUIS.</th>
-                <th className="p-4 border-b border-slate-800/50 text-right">TRANSPORTE</th>
+                <th className="p-4 border-b border-slate-800/50 text-right text-slate-500">TRANSPORTE</th>
                 <th className="p-4 border-b border-slate-800/50 text-right">TOTAL (KZ)</th>
                 <th className="p-4 border-b border-slate-800/50 text-center">AÇÕES</th>
               </tr>
@@ -198,7 +224,7 @@ export default function LotesPage() {
                 const isEditing = editingId === l.id;
                 const isSelected = selectedIds.includes(l.id);
                 return (
-                  <tr key={l.id} className={`${isSelected ? 'bg-emerald-500/5' : ''} hover:bg-emerald-500/[0.02] transition-colors`}>
+                  <tr key={l.id} className={`${isSelected ? 'bg-emerald-500/5' : ''} hover:bg-emerald-500/[0.02] transition-colors group`}>
                     <td className="p-4 text-center">
                       <button onClick={() => toggleSelectOne(l.id)} className={isSelected ? 'text-emerald-500' : 'text-slate-700'}>
                         {isSelected ? <CheckSquare size={18}/> : <Square size={18}/>}
@@ -209,24 +235,30 @@ export default function LotesPage() {
                     <td className="p-4 font-bold text-slate-200 uppercase">{l.raca || '---'}</td>
                     <td className="p-4 font-medium text-slate-400 uppercase">{l.fornecedor || '---'}</td>
                     <td className="p-4 text-center text-slate-400 font-bold">{formatDateDisplay(l.dataEntrada)}</td>
-                    <td className="p-4 text-center text-white font-black">{l.quantidade}</td>
+                    <td className="p-4 text-center">
+                      {isEditing ? <input type="number" className="w-16 bg-black border border-emerald-500 text-center rounded" value={editValue.quantidade} onChange={e => setEditValue({...editValue, quantidade: e.target.value})} /> : <span className="text-white font-black">{l.quantidade}</span>}
+                    </td>
                     <td className="p-4 text-center text-slate-300 font-bold">
-                      {isEditing ? <input type="number" className="w-20 bg-black border border-emerald-500 text-center" value={editValue.pesoInicialMedio} onChange={e => setEditValue({...editValue, pesoInicialMedio: e.target.value})} /> : `${l.pesoInicialMedio || 0} kg`}
+                      {isEditing ? <input type="number" className="w-20 bg-black border border-emerald-500 text-center rounded" value={editValue.pesoInicialMedio} onChange={e => setEditValue({...editValue, pesoInicialMedio: e.target.value})} /> : `${l.pesoInicialMedio || 0} kg`}
                     </td>
                     <td className="p-4 text-center text-slate-500 font-medium">
-                      {isEditing ? <input type="number" className="w-20 bg-black border border-emerald-500 text-center" value={editValue.pesoFinalTransporte} onChange={e => setEditValue({...editValue, pesoFinalTransporte: e.target.value})} /> : `${l.pesoFinalTransporte || 0} kg`}
+                      {isEditing ? <input type="number" className="w-20 bg-black border border-emerald-500 text-center rounded" value={editValue.pesoFinalTransporte} onChange={e => setEditValue({...editValue, pesoFinalTransporte: e.target.value})} /> : `${l.pesoFinalTransporte || 0} kg`}
                     </td>
-                    <td className="p-4 text-right text-emerald-500 font-black">{Number(l.custoAquisicao).toLocaleString()}</td>
-                    <td className="p-4 text-right text-slate-400 font-medium">{Number(l.custoTransporte || 0).toLocaleString()}</td>
+                    <td className="p-4 text-right text-emerald-500 font-black">
+                      {isEditing ? <input type="number" className="w-24 bg-black border border-emerald-500 text-right rounded px-2" value={editValue.custoAquisicao} onChange={e => setEditValue({...editValue, custoAquisicao: e.target.value})} /> : Number(l.custoAquisicao).toLocaleString()}
+                    </td>
+                    <td className="p-4 text-right text-slate-400 font-medium">
+                      {isEditing ? <input type="number" className="w-24 bg-black border border-emerald-500 text-right rounded px-2" value={editValue.custoTransporte} onChange={e => setEditValue({...editValue, custoTransporte: e.target.value})} /> : Number(l.custoTransporte || 0).toLocaleString()}
+                    </td>
                     <td className="p-4 text-right font-black text-white bg-white/5">{total.toLocaleString()}</td>
                     <td className="p-4 text-center">
-                      <div className="flex justify-center gap-1">
+                      <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {isEditing ? (
-                          <><button onClick={handleSaveEdit} className="text-emerald-500"><Check size={14}/></button>
-                          <button onClick={() => setEditingId(null)} className="text-red-500"><X size={14}/></button></>
+                          <><button onClick={handleSaveEdit} className="text-emerald-500 hover:scale-110"><Check size={16}/></button>
+                          <button onClick={() => setEditingId(null)} className="text-red-500 hover:scale-110"><X size={16}/></button></>
                         ) : (
-                          <><button onClick={() => { setEditingId(l.id); setEditValue({...l}); }} className="text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
-                          <button onClick={() => { if(confirm('Eliminar?')) deleteDoc(doc(db, 'lotes', l.id)) }} className="text-slate-700 hover:text-red-500"><Trash2 size={14}/></button></>
+                          <><button onClick={() => { setEditingId(l.id); setEditValue({...l}); }} className="p-2 text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
+                          <button onClick={() => { if(confirm('Eliminar?')) deleteDoc(doc(db, 'lotes', l.id)) }} className="p-2 text-slate-700 hover:text-red-500"><Trash2 size={14}/></button></>
                         )}
                       </div>
                     </td>
@@ -237,18 +269,38 @@ export default function LotesPage() {
           </table>
         </div>
 
-        <div className="p-4 bg-black border-t border-slate-800/50 flex justify-between items-center shrink-0">
-          <div className="flex gap-10 px-4">
-            <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase">Total Animais</span>
-              <span className="text-sm font-black text-white">{totalAnimais.toLocaleString()}</span>
+        {/* RESUMO FINAL ATUALIZADO */}
+        <div className="p-4 bg-[#11141d] border-t border-slate-800 flex justify-between items-center shrink-0 shadow-inner">
+          <div className="flex gap-12 px-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-cyan-500/10 rounded-lg text-cyan-500"><Layers size={20}/></div>
+              <div className="flex flex-col">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Total Lotes</span>
+                <span className="text-lg font-black text-white leading-none">{totalLotes}</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase">Investimento Geral</span>
-              <span className="text-sm font-black text-emerald-500">{custoTotalGeral.toLocaleString()} Kz</span>
+            
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500"><Package size={20}/></div>
+              <div className="flex flex-col">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Total Animais</span>
+                <span className="text-lg font-black text-white leading-none">{totalAnimais.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
+                <span className="text-xs font-black">KZ</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Investimento Geral</span>
+                <span className="text-lg font-black text-emerald-500 leading-none">{custoTotalGeral.toLocaleString()}</span>
+              </div>
             </div>
           </div>
-          <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest px-4 italic">FAZENDA KWANZA</p>
+          <div className="px-6 text-right">
+             <p className="text-[9px] font-black text-slate-700 uppercase tracking-[0.2em] italic">Sistema de Gestão - Fazenda Kwanza</p>
+          </div>
         </div>
       </div>
     </div>
