@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { 
   Users, Plus, Trash2, Search,
-  UploadCloud, FileSpreadsheet, FileText, Square, CheckSquare, Scale
+  UploadCloud, FileSpreadsheet, FileText, Square, CheckSquare, Scale, Tag
 } from 'lucide-react';
 
 import jsPDF from 'jspdf';
@@ -73,44 +73,48 @@ export default function LotesDetalhePage() {
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const data: any[] = XLSX.utils.sheet_to_json(ws);
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data: any[] = XLSX.utils.sheet_to_json(ws);
 
-      const batch = writeBatch(db);
-      let countImportados = 0;
-      let countDuplicados = 0;
+        const batch = writeBatch(db);
+        let countImportados = 0;
+        let countDuplicados = 0;
 
-      data.forEach((row: any) => {
-        const brincoLimpo = String(row.brinco || '').toUpperCase();
-        const existe = animais.some(a => a.brinco === brincoLimpo);
+        data.forEach((row: any) => {
+          const brincoLimpo = String(row.brinco || '').toUpperCase();
+          const existe = animais.some(a => a.brinco === brincoLimpo);
 
-        if (!existe && brincoLimpo !== '') {
-          const animalRef = doc(collection(db, 'animais'));
-          batch.set(animalRef, {
-            loteId: String(row.loteId || '').toUpperCase(),
-            brinco: brincoLimpo,
-            raca: String(row.raca || '').toUpperCase(),
-            sexo: String(row.sexo || 'FÊMEA').toUpperCase(),
-            pesoAtual: parseFloat(row.pesoAtual) || 0,
-            dataNascimento: formatExcelDate(row.dataNascimento),
-            createdAt: new Date().toISOString()
-          });
-          countImportados++;
-        } else if (existe) {
-          countDuplicados++;
+          if (!existe && brincoLimpo !== '') {
+            const animalRef = doc(collection(db, 'animais'));
+            batch.set(animalRef, {
+              loteId: String(row.loteId || '').toUpperCase(),
+              brinco: brincoLimpo,
+              raca: String(row.raca || '').toUpperCase(),
+              sexo: String(row.sexo || 'FÊMEA').toUpperCase(),
+              pesoAtual: parseFloat(row.pesoAtual) || 0,
+              dataNascimento: formatExcelDate(row.dataNascimento),
+              createdAt: new Date().toISOString()
+            });
+            countImportados++;
+          } else if (existe) {
+            countDuplicados++;
+          }
+        });
+
+        if (countImportados > 0) {
+          await batch.commit();
+          setImportHistory(prev => [...prev, file.name]);
+          alert(`Importação concluída!\nNovos: ${countImportados}\nDuplicados: ${countDuplicados}`);
+        } else {
+          alert(`Aviso: Todos os ${countDuplicados} animais já existem.`);
         }
-      });
-
-      if (countImportados > 0) {
-        await batch.commit();
-        setImportHistory(prev => [...prev, file.name]);
-        alert(`Importação concluída!\nNovos: ${countImportados}\nDuplicados saltados: ${countDuplicados}`);
-      } else {
-        alert(`Aviso: Todos os ${countDuplicados} animais deste ficheiro já existem no sistema.`);
+      } catch (err) {
+        console.error(err);
+        alert("Erro ao ler o ficheiro Excel.");
       }
-
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsBinaryString(file);
@@ -121,32 +125,12 @@ export default function LotesDetalhePage() {
     (a.loteId?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
-
-  const toggleSelectAll = () => {
-    setSelectedIds(selectedIds.length === filteredAnimais.length && filteredAnimais.length > 0 
-      ? [] 
-      : filteredAnimais.map(a => a.id!)
-    );
-  };
-
-  const handleBulkDelete = async () => {
-    if (!confirm(`Eliminar ${selectedIds.length} registos?`)) return;
-    const batch = writeBatch(db);
-    selectedIds.forEach(id => batch.delete(doc(db, 'animais', id)));
-    await batch.commit();
-    setSelectedIds([]);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (animais.some(a => a.brinco === formData.brinco.toUpperCase())) {
-      alert("Erro: Este brinco já está registado na base de dados.");
+      alert("Erro: Este brinco já está registado.");
       return;
     }
-
     await addDoc(collection(db, 'animais'), {
       ...formData,
       loteId: formData.loteId.toUpperCase(),
@@ -172,7 +156,7 @@ export default function LotesDetalhePage() {
     autoTable(docPDF, {
       head: [["LOTE ID", "BRINCO", "RAÇA", "SEXO", "PESO", "DATA NASC."]],
       body: filteredAnimais.map(a => [a.loteId, a.brinco, a.raca, a.sexo, `${a.pesoAtual} Kg`, a.dataNascimento]),
-      headStyles: { fillColor: [0, 157, 196] }
+      headStyles: { fillColor: [6, 182, 212] }
     });
     docPDF.save("Relatorio_Animais.pdf");
   };
@@ -186,136 +170,151 @@ export default function LotesDetalhePage() {
     <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
         <div className="flex items-center gap-3">
-          <Users className="text-white" size={28} />
-          <h1 className="text-2xl font-black text-white uppercase tracking-tight">GESTÃO DE LOTES</h1>
+          <Users className="text-cyan-500" size={28} />
+          <h1 className="text-2xl font-black text-white uppercase tracking-tight">GESTÃO DE EFETIVO</h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <div className="relative flex-1 lg:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
             <input 
-              placeholder="PESQUISAR..." 
+              placeholder="PESQUISAR BRINCO OU LOTE..." 
               className="w-full bg-[#161922] border border-slate-800 pl-10 pr-4 py-2 rounded-xl text-[10px] font-bold text-white outline-none focus:border-cyan-500"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full sm:w-auto">
             <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleImport} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800">
-              <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR
+            <button onClick={() => fileInputRef.current?.click()} className="flex-1 bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+              <UploadCloud size={14} className="text-emerald-500" /> IMPORTAR
             </button>
-            <button type="button" onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800">
-              <FileSpreadsheet size={14} className="text-emerald-500" /> EXCEL
+            <button onClick={exportToExcel} className="flex-1 bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+              <FileSpreadsheet size={14} className="text-cyan-400" /> EXCEL
             </button>
-            <button type="button" onClick={exportToPDF} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800">
-              <FileText size={14} className="text-red-500" /> PDF
+            <button onClick={exportToPDF} className="flex-1 bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+              <FileText size={14} className="text-red-400" /> PDF
             </button>
           </div>
         </div>
       </header>
 
-      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-xl">
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">loteId</label>
-            <input required placeholder="EX: FQ-2026-S01" className="w-full bg-[#0d0f14] border border-slate-800 p-2 rounded-lg text-white text-[10px] font-bold outline-none uppercase focus:border-cyan-500" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-lg">
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:flex md:flex-nowrap gap-3 items-end">
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Lote ID</label>
+            <input required placeholder="EX: FQ-2026-S01" className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs font-bold outline-none uppercase focus:border-cyan-500" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value.toUpperCase()})} />
           </div>
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">brinco</label>
-            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-2 rounded-lg text-white text-[10px] font-bold outline-none uppercase focus:border-cyan-500" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value})} />
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Brinco</label>
+            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs font-bold outline-none uppercase focus:border-cyan-500" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value.toUpperCase()})} />
           </div>
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">raca</label>
-            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-2 rounded-lg text-white text-[10px] font-bold outline-none uppercase focus:border-cyan-500" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value})} />
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Raça</label>
+            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs font-bold outline-none uppercase focus:border-cyan-500" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value.toUpperCase()})} />
           </div>
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">peso (kg)</label>
-            <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-2 rounded-lg text-white text-[10px] font-bold outline-none focus:border-cyan-500" value={formData.pesoAtual || ''} onChange={e => setFormData({...formData, pesoAtual: Number(e.target.value)})} />
+          <div className="space-y-1 w-24">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1 text-center block">Peso (Kg)</label>
+            <input type="number" step="0.1" required className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs font-bold outline-none text-center" value={formData.pesoAtual || ''} onChange={e => setFormData({...formData, pesoAtual: Number(e.target.value)})} />
           </div>
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-1">nascimento</label>
-            <input type="date" required className="w-full bg-[#0d0f14] border border-slate-800 p-2 rounded-lg text-white text-[10px] font-bold outline-none focus:border-cyan-500" value={formData.dataNascimento} onChange={e => setFormData({...formData, dataNascimento: e.target.value})} />
+          <div className="space-y-1 flex-1">
+            <label className="text-[9px] font-black text-slate-500 uppercase px-1">Nascimento</label>
+            <input type="date" required className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs font-bold outline-none focus:border-cyan-500" value={formData.dataNascimento} onChange={e => setFormData({...formData, dataNascimento: e.target.value})} />
           </div>
-          <button type="submit" className="bg-[#009dc4] hover:bg-[#00b4e0] text-white font-black text-[10px] py-2.5 rounded-lg uppercase flex items-center justify-center gap-2 transition-transform active:scale-95">
-            <Plus size={14} /> Gravar
+          <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] px-6 py-3 rounded-lg uppercase flex items-center gap-2 transition-all">
+            <Plus size={16} /> Gravar
           </button>
         </form>
       </div>
 
-      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 flex flex-col flex-1 min-h-0 overflow-hidden shadow-2xl">
-        <div className="overflow-y-auto flex-1 overflow-x-auto scrollbar-thin scrollbar-thumb-slate-800"> 
-          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[900px]">
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
+          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1000px]">
             <thead className="bg-[#11141d] text-slate-500 font-black uppercase text-[9px] sticky top-0 z-10">
               <tr>
-                <th className="p-4 w-10 text-center border-b border-slate-800/50">
-                  <button type="button" onClick={toggleSelectAll}>
+                <th className="p-4 border-b border-slate-800/50 w-10 text-center">
+                   <button onClick={() => setSelectedIds(selectedIds.length === filteredAnimais.length ? [] : filteredAnimais.map(a => a.id!))}>
                     {selectedIds.length === filteredAnimais.length && filteredAnimais.length > 0 ? <CheckSquare size={16} className="text-cyan-500"/> : <Square size={16}/>}
-                  </button>
+                   </button>
                 </th>
                 <th className="p-4 border-b border-slate-800/50">LOTE ID</th>
                 <th className="p-4 border-b border-slate-800/50">BRINCO</th>
                 <th className="p-4 border-b border-slate-800/50">RAÇA</th>
                 <th className="p-4 border-b border-slate-800/50">SEXO</th>
-                <th className="p-4 text-center border-b border-slate-800/50">PESO</th>
-                <th className="p-4 border-b border-slate-800/50">DATA NASC.</th>
-                <th className="p-4 text-center border-b border-slate-800/50">AÇÕES</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">PESO ATUAL</th>
+                <th className="p-4 border-b border-slate-800/50">NASCIMENTO</th>
+                <th className="p-4 border-b border-slate-800/50 text-center">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/20">
-              {filteredAnimais.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-10 text-center text-slate-600 font-bold italic uppercase tracking-widest">Nenhum registo disponível</td>
-                </tr>
-              ) : (
-                filteredAnimais.map((a) => (
-                  <tr key={a.id} className="hover:bg-white/[0.02] transition-colors group">
+              {filteredAnimais.map((a) => {
+                const isSelected = selectedIds.includes(a.id!);
+                return (
+                  <tr key={a.id} className={`${isSelected ? 'bg-cyan-500/5' : ''} hover:bg-cyan-500/[0.02] transition-colors group`}>
                     <td className="p-4 text-center">
-                      <button type="button" onClick={() => toggleSelect(a.id!)}>
-                        {selectedIds.includes(a.id!) ? <CheckSquare size={16} className="text-cyan-400"/> : <Square size={16} className="text-slate-700"/>}
+                      <button onClick={() => setSelectedIds(prev => prev.includes(a.id!) ? prev.filter(id => id !== a.id) : [...prev, a.id!])}>
+                        {isSelected ? <CheckSquare size={16} className="text-cyan-500"/> : <Square size={16} className="text-slate-700"/>}
                       </button>
                     </td>
                     <td className="p-4 font-black text-cyan-500 uppercase">{a.loteId}</td>
-                    <td className="p-4 text-white font-bold uppercase">{a.brinco}</td>
+                    <td className="p-4 text-white font-bold uppercase"><Tag size={10} className="inline mr-1 text-slate-500" />{a.brinco}</td>
                     <td className="p-4 text-slate-400 font-bold uppercase">{a.raca}</td>
                     <td className="p-4 text-slate-500 font-bold uppercase">{a.sexo}</td>
-                    <td className="p-4 text-center font-black text-white">{a.pesoAtual} Kg</td>
+                    <td className="p-4 text-center text-white font-black">{a.pesoAtual} Kg</td>
                     <td className="p-4 text-slate-500 font-bold uppercase">{a.dataNascimento}</td>
                     <td className="p-4 text-center">
-                      <button type="button" onClick={() => deleteDoc(doc(db, 'animais', a.id!))} className="text-slate-700 hover:text-red-500 transition-colors">
+                      <button onClick={() => { if(confirm('Eliminar registo?')) deleteDoc(doc(db, 'animais', a.id!)) }} className="text-slate-600 hover:text-red-500 transition-colors">
                         <Trash2 size={16}/>
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              })}
             </tbody>
           </table>
         </div>
-        
-        <div className="p-4 bg-[#0d0f14] border-t border-slate-800/50 grid grid-cols-2 md:grid-cols-4 gap-4 px-6 items-center shrink-0">
-          <div className="flex flex-col border-r border-slate-800/50">
-            <span className="text-[8px] font-black text-slate-500 uppercase">Efetivo Total</span>
-            <span className="text-sm font-black text-white uppercase">{animais.length} UN.</span>
-          </div>
-          <div className="flex flex-col border-r border-slate-800/50">
-            <div className="flex items-center gap-1 text-emerald-500">
-              <Scale size={10} /><span className="text-[8px] font-black uppercase">Bovinos</span>
+
+        <div className="p-4 bg-[#0d0f14] border-t border-slate-800/50 flex flex-col md:flex-row gap-6 px-6 items-center shrink-0">
+          <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-white uppercase tracking-widest">EFETIVO TOTAL</span>
+              <span className="text-sm font-black text-cyan-500">{animais.length} UNID.</span>
             </div>
-            <span className="text-sm font-black text-white">{calcularMedia(bovinos)} KG</span>
-            <span className="text-[7px] text-slate-500 font-bold uppercase">{bovinos.length} Cab.</span>
           </div>
-          <div className="flex flex-col border-r border-slate-800/50">
-            <div className="flex items-center gap-1 text-cyan-500">
-              <Scale size={10} /><span className="text-[8px] font-black uppercase">Suínos</span>
+          
+          <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1 text-emerald-500">
+                <Scale size={10} /><span className="text-[8px] font-black uppercase">Média Bovinos</span>
+              </div>
+              <span className="text-sm font-black text-white">{calcularMedia(bovinos)} KG</span>
+              <span className="text-[7px] text-slate-500 font-bold uppercase">{bovinos.length} Cab.</span>
             </div>
-            <span className="text-sm font-black text-white">{calcularMedia(suinos)} KG</span>
-            <span className="text-[7px] text-slate-500 font-bold uppercase">{suinos.length} Cab.</span>
           </div>
-          <div className="flex justify-end">
+
+          <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1 text-cyan-500">
+                <Scale size={10} /><span className="text-[8px] font-black uppercase">Média Suínos</span>
+              </div>
+              <span className="text-sm font-black text-white">{calcularMedia(suinos)} KG</span>
+              <span className="text-[7px] text-slate-500 font-bold uppercase">{suinos.length} Cab.</span>
+            </div>
+          </div>
+
+          <div className="shrink-0">
             {selectedIds.length > 0 && (
-              <button type="button" onClick={handleBulkDelete} className="bg-red-600/10 text-red-500 text-[9px] font-black px-4 py-2 rounded-lg border border-red-500/20 hover:bg-red-600 hover:text-white transition-all">
-                ELIMINAR ({selectedIds.length})
+              <button 
+                onClick={async () => {
+                  if(!confirm(`Eliminar ${selectedIds.length} selecionados?`)) return;
+                  const batch = writeBatch(db);
+                  selectedIds.forEach(id => batch.delete(doc(db, 'animais', id)));
+                  await batch.commit();
+                  setSelectedIds([]);
+                }} 
+                className="bg-red-600/20 border border-red-500/50 text-red-500 text-[9px] font-black px-4 py-2 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+              >
+                ELIMINAR SELECIONADOS ({selectedIds.length})
               </button>
             )}
           </div>
