@@ -40,6 +40,17 @@ export default function VendasPage() {
     return () => unsubscribe();
   }, []);
 
+  const deleteSelected = async () => {
+    if (window.confirm(`Deseja eliminar os ${selectedIds.length} registos selecionados?`)) {
+      const batch = writeBatch(db);
+      selectedIds.forEach(id => {
+        batch.delete(doc(db, 'vendas', id));
+      });
+      await batch.commit();
+      setSelectedIds([]);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -47,18 +58,30 @@ export default function VendasPage() {
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
         const batch = writeBatch(db);
+        
         data.forEach((item: any) => {
           const newDocRef = doc(collection(db, 'vendas'));
+          
+          let dataFinal = new Date().toISOString().split('T')[0];
+          const rawDate = item.dataVenda || item.Data || item.loteData;
+          
+          if (rawDate instanceof Date) {
+            dataFinal = rawDate.toISOString().split('T')[0];
+          } else if (typeof rawDate === 'string') {
+            dataFinal = rawDate;
+          }
+
           batch.set(newDocRef, {
-            codigoLote: String(item.Lote || item.codigoLote || '').toUpperCase(),
-            brinco: String(item.Brinco || item.brinco || '').toUpperCase(),
-            dataVenda: item.Data || item.dataVenda || new Date().toISOString().split('T')[0],
-            cliente: String(item.Cliente || item.cliente || 'CLIENTE GERAL').toUpperCase(),
-            pesoKg: parseFloat(item.Peso || item.pesoKg) || 0,
-            precoKz: parseFloat(item.Preco || item.precoKz) || 0,
+            codigoLote: String(item.loteId || item.codigoLote || item.Lote || '').toUpperCase(),
+            brinco: String(item.brinco || item.Brinco || '').toUpperCase(),
+            dataVenda: dataFinal,
+            cliente: String(item.cliente || item.Cliente || 'CLIENTE GERAL').toUpperCase(),
+            produto: String(item.produto || item.Produto || 'GERAL').toUpperCase(),
+            pesoKg: parseFloat(item.pesoKg || item.Peso) || 0,
+            precoKz: parseFloat(item.precoKz || item.Preco) || 0,
             createdAt: new Date().toISOString()
           });
         });
@@ -80,16 +103,64 @@ export default function VendasPage() {
     XLSX.writeFile(wb, "Vendas_Kwanza.xlsx");
   };
 
+  const formatarDataParaPDF = (dataStr: any) => {
+    if (!dataStr || typeof dataStr !== 'string') return '---';
+    if (dataStr.includes('/')) return dataStr; // Já está formatada
+    if (dataStr.includes('-')) return dataStr.split('-').reverse().join('/'); // Formato YYYY-MM-DD
+    return dataStr;
+  };
+
   const exportToPDF = () => {
-    const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.text("RELATÓRIO COMERCIAL - FAZENDA KWANZA", 14, 15);
-    autoTable(docPDF, {
-      head: [["LOTE", "BRINCO", "DATA", "CLIENTE", "PESO", "PREÇO", "TOTAL"]],
-      body: vendas.map(v => [v.codigoLote, v.brinco, v.dataVenda, v.cliente, v.pesoKg, v.precoKz, (v.pesoKg * v.precoKz)]),
-      startY: 22,
-      headStyles: { fillColor: [16, 185, 129] }
-    });
-    docPDF.save("Vendas_Kwanza.pdf");
+    try {
+      const docPDF = new jsPDF('l', 'mm', 'a4');
+      docPDF.setFontSize(18);
+      docPDF.text("RELATÓRIO COMERCIAL - FAZENDA KWANZA", 14, 15);
+      
+      autoTable(docPDF, {
+        head: [["LOTE", "BRINCO", "DATA", "CLIENTE", "PESO (KG)", "PREÇO (KZ)", "TOTAL (KZ)"]],
+        body: vendas.map(v => [
+          v.codigoLote, 
+          v.brinco || '---', 
+          formatarDataParaPDF(v.dataVenda), 
+          v.cliente, 
+          v.pesoKg.toLocaleString(), 
+          v.precoKz.toLocaleString(), 
+          (v.pesoKg * v.precoKz).toLocaleString()
+        ]),
+        startY: 25,
+        headStyles: { fillColor: [16, 185, 129] },
+      });
+
+      let finalY = (docPDF as any).lastAutoTable ? (docPDF as any).lastAutoTable.finalY + 10 : 180;
+      if (finalY > 160) { docPDF.addPage(); finalY = 20; }
+
+      docPDF.setFontSize(12);
+      docPDF.text("RESUMO FINANCEIRO", 14, finalY);
+
+      autoTable(docPDF, {
+        startY: finalY + 5,
+        head: [["CATEGORIA", "QTD CAB", "MÉDIA KZ/KG", "TOTAL FATURADO"]],
+        body: [
+          ["BOVINOS", resumoB.total, `${resumoB.media} Kz`, `${resumoB.valor.toLocaleString()} Kz`],
+          ["SUÍNOS", resumoS.total, `${resumoS.media} Kz`, `${resumoS.valor.toLocaleString()} Kz`],
+          [{ 
+            content: "FATURAMENTO TOTAL GERAL", 
+            colSpan: 3, 
+            styles: { halign: 'right', fontStyle: 'bold', fillColor: [240, 240, 240] } 
+          }, 
+          { 
+            content: `${totalGeral.toLocaleString()} Kz`, 
+            styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } 
+          }]
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [31, 41, 55] }
+      });
+
+      docPDF.save(`Relatorio_Vendas_Kwanza.pdf`);
+    } catch (err) {
+      alert("Erro ao processar os dados do PDF. Verifique se as datas estão corretas.");
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -104,23 +175,15 @@ export default function VendasPage() {
     setFormData(initialForm);
   };
 
-  // --- NOVA LÓGICA DE IDENTIFICAÇÃO POR BRINCO OU LOTE ---
   const getResumo = (char: 'B' | 'S') => {
     const filtrados = vendas.filter(v => {
       const b = String(v.brinco || '').toUpperCase();
       const l = String(v.codigoLote || '').toUpperCase();
-      // Verifica se o brinco começa com a letra ou se o lote contém a marcação -B/-S
-      return b.startsWith(char) || l.includes(`-${char}`);
+      return b.includes(char) || l.includes(`-${char}`);
     });
-
     const valor = filtrados.reduce((acc, v) => acc + (v.pesoKg * v.precoKz || 0), 0);
     const peso = filtrados.reduce((acc, v) => acc + (Number(v.pesoKg) || 0), 0);
-    
-    return {
-      valor,
-      total: filtrados.length,
-      media: peso > 0 ? (valor / peso).toFixed(1) : "0.0"
-    };
+    return { valor, total: filtrados.length, media: peso > 0 ? (valor / peso).toFixed(1) : "0.0" };
   };
 
   const resumoB = getResumo('B');
@@ -136,6 +199,11 @@ export default function VendasPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {selectedIds.length > 0 && (
+            <button onClick={deleteSelected} className="bg-red-600/10 border border-red-500/50 px-4 py-2 rounded-lg text-[10px] font-black text-red-500 flex items-center gap-2 hover:bg-red-600 hover:text-white transition-all">
+              <Trash2 size={14} /> ELIMINAR ({selectedIds.length})
+            </button>
+          )}
           <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} />
           <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-colors">
             <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR
@@ -149,15 +217,14 @@ export default function VendasPage() {
         </div>
       </header>
 
-      {/* FORMULÁRIO */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-lg">
         <form onSubmit={handleSubmit} className="grid grid-cols-2 lg:flex lg:flex-nowrap gap-3 items-end">
           <div className="flex-1">
-            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Lote (Ex: LOTE-2026-B)</label>
-            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs uppercase focus:border-emerald-500 outline-none" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
+            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Lote</label>
+            <input required className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs uppercase outline-none" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
           </div>
           <div className="flex-1">
-            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Brinco (Ex: B001 ou S001)</label>
+            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Brinco</label>
             <input className="w-full bg-[#0d0f14] border border-slate-800 p-2.5 rounded-lg text-white text-xs uppercase outline-none" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value.toUpperCase()})} />
           </div>
           <div className="flex-[1.5]">
@@ -183,7 +250,6 @@ export default function VendasPage() {
         </form>
       </div>
 
-      {/* TABELA */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
           <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1000px]">
@@ -214,7 +280,9 @@ export default function VendasPage() {
                   </td>
                   <td className="p-4 font-black text-cyan-500 uppercase">{v.codigoLote}</td>
                   <td className="p-4 text-white font-bold uppercase"><Tag size={10} className="inline mr-1 text-slate-500" />{v.brinco || 'LOTE'}</td>
-                  <td className="p-4 text-slate-400 font-bold">{v.dataVenda?.split('-').reverse().join('/')}</td>
+                  <td className="p-4 text-slate-400 font-bold">
+                    {formatarDataParaPDF(v.dataVenda)}
+                  </td>
                   <td className="p-4 text-white font-black uppercase text-[10px]">{v.cliente}</td>
                   <td className="p-4 text-center text-emerald-400 font-black">{v.pesoKg} Kg</td>
                   <td className="p-4 text-center text-slate-500 font-bold">{Number(v.precoKz).toLocaleString()}</td>
@@ -233,15 +301,14 @@ export default function VendasPage() {
           </table>
         </div>
 
-        {/* RODAPÉ FINANCEIRO COM LÓGICA REFORÇADA */}
         <div className="p-4 bg-[#0d0f14] border-t border-slate-800/50 flex flex-col md:flex-row gap-6 px-6 items-center shrink-0">
           <div className="flex-1 flex flex-col">
-            <span className="text-[10px] font-black text-cyan-500 uppercase tracking-widest leading-none mb-1">BOVINOS (B...)</span>
+            <span className="text-[10px] font-black text-cyan-500 uppercase tracking-widest leading-none mb-1">BOVINOS</span>
             <span className="text-sm font-black text-white leading-none">{resumoB.valor.toLocaleString()} Kz</span>
             <span className="text-[8px] text-slate-500 font-bold uppercase mt-1">{resumoB.total} CAB | {resumoB.media} Kz/Kg</span>
           </div>
           <div className="flex-1 flex flex-col">
-            <span className="text-[10px] font-black text-pink-500 uppercase tracking-widest leading-none mb-1">SUÍNOS (S...)</span>
+            <span className="text-[10px] font-black text-pink-500 uppercase tracking-widest leading-none mb-1">SUÍNOS</span>
             <span className="text-sm font-black text-white leading-none">{resumoS.valor.toLocaleString()} Kz</span>
             <span className="text-[8px] text-slate-500 font-bold uppercase mt-1">{resumoS.total} CAB | {resumoS.media} Kz/Kg</span>
           </div>
