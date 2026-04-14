@@ -1,265 +1,250 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { 
-  collection, onSnapshot, query, orderBy, 
-  deleteDoc, doc, writeBatch, updateDoc 
+  collection, addDoc, onSnapshot, query, orderBy, 
+  deleteDoc, doc, updateDoc
 } from 'firebase/firestore';
 import { 
-  Package, Trash2, UploadCloud, 
-  Edit3, FileText, Check, X, FileSpreadsheet,
-  Square, CheckSquare, Layers
+  Box, Plus, Trash2, Check, 
+  Square, Edit3, RotateCcw,
+  CloudUpload, FileSpreadsheet, FileDown
 } from 'lucide-react';
-
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export default function LotesPage() {
   const [lotes, setLotes] = useState<any[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [abates, setAbates] = useState<any[]>([]);
+  const [vendas, setVendas] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const initialForm = {
+    codigoLote: '',
+    tipo: 'SUÍNO',
+    raca: '',
+    quantidade: '',
+    fornecedor: '',
+    dataEntrada: new Date().toISOString().split('T')[0],
+    pesoInicialMedio: '',
+    pesoFinalTransporte: '',
+    custoTransporte: '',
+    custoAquisicao: '',
+  };
+
+  const [formData, setFormData] = useState(initialForm);
+
   useEffect(() => {
-    const q = query(collection(db, 'lotes'), orderBy('dataEntrada', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setLotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubLotes = onSnapshot(query(collection(db, 'lotes'), orderBy('dataEntrada', 'desc')), (snap) => {
+      setLotes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return () => unsubscribe();
+    const unsubAbates = onSnapshot(collection(db, 'abates'), (snap) => {
+      setAbates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    const unsubVendas = onSnapshot(collection(db, 'vendas'), (snap) => {
+      setVendas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { unsubLotes(); unsubAbates(); unsubVendas(); };
   }, []);
 
-  // Lógica de Seleção
-  const toggleSelectAll = () => {
-    if (selectedIds.length === lotes.length && lotes.length > 0) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(lotes.map(l => l.id));
-    }
-  };
+  const getResumoTotal = () => {
+    let bovinosIni = 0; let suinosIni = 0;
+    let saídasBovino = 0; let saídasSuino = 0;
 
-  const toggleSelectOne = (id: string) => {
-    setSelectedIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
+    lotes.forEach(l => {
+      const qtd = Number(l.quantidade) || 0;
+      const tipo = String(l.tipo || '').toUpperCase();
+      const loteIdStr = String(l.codigoLote || '').trim().toUpperCase();
+      const s = abates.filter(a => String(a.loteId || '').trim().toUpperCase() === loteIdStr).length +
+                vendas.filter(v => String(v.loteId || '').trim().toUpperCase() === loteIdStr).length;
 
-  const deleteSelected = async () => {
-    if (!confirm(`Eliminar ${selectedIds.length} lotes selecionados?`)) return;
-    const batch = writeBatch(db);
-    selectedIds.forEach(id => {
-      batch.delete(doc(db, 'lotes', id));
+      if (tipo.includes('BOVINO')) { bovinosIni += qtd; saídasBovino += s; } 
+      else { suinosIni += qtd; saídasSuino += s; }
     });
-    await batch.commit();
-    setSelectedIds([]);
+
+    return {
+      bovinos: bovinosIni - saídasBovino,
+      suinos: suinosIni - saídasSuino,
+      totalSaidas: abates.length + vendas.length,
+      stockGlobal: (bovinosIni + suinosIni) - (abates.length + vendas.length)
+    };
   };
 
-  // Cálculos do Resumo Final
-  const totalLotes = lotes.length;
-  const totalAnimais = lotes.reduce((acc, l) => acc + (Number(l.quantidade) || 0), 0);
-  const custoTotalGeral = lotes.reduce((acc, l) => acc + (Number(l.custoAquisicao || 0) + Number(l.custoTransporte || 0)), 0);
+  const resumo = getResumoTotal();
 
-  const formatDateDisplay = (dateVal: any) => {
-    if (!dateVal) return '---';
-    try {
-      if (typeof dateVal === 'string' && dateVal.includes('-')) {
-        const parts = dateVal.split('T')[0].split('-');
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
-      }
-      const d = new Date(dateVal);
-      return !isNaN(d.getTime()) ? d.toLocaleDateString('pt-PT') : String(dateVal);
-    } catch (e) { return 'Data Inválida'; }
-  };
+  // --- LOGICA IMPORTAR/EXPORTAR ---
+  const handleImportClick = () => fileInputRef.current?.click();
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws);
-        const batch = writeBatch(db);
-
-        data.forEach((item: any) => {
-          // Normalização de chaves para evitar erros de digitação no Excel
-          const cleanItem: any = {};
-          Object.keys(item).forEach(key => {
-            const cleanKey = key.trim().replace(/\s+/g, '');
-            cleanItem[cleanKey] = item[key];
-          });
-
-          const newDocRef = doc(collection(db, 'lotes'));
-          
-          let dEntrada = new Date().toISOString().split('T')[0];
-          if (cleanItem.dataEntrada) {
-            const d = new Date(cleanItem.dataEntrada);
-            if (!isNaN(d.getTime())) dEntrada = d.toISOString().split('T')[0];
-          }
-
-          batch.set(newDocRef, {
-            codigoLote: String(cleanItem.codigoLote || 'N/A').toUpperCase(),
-            tipo: String(cleanItem.tipo || 'SUINO').toUpperCase(),
-            raca: String(cleanItem.raca || '').toUpperCase(),
-            quantidade: Number(cleanItem.quantidade) || 0,
-            fornecedor: String(cleanItem.fornecedor || '').toUpperCase(),
-            dataEntrada: dEntrada,
-            pesoInicialMedio: Number(cleanItem.pesoInicialMedio) || 0,
-            pesoFinalTransporte: Number(cleanItem.pesoFinalTransporte) || 0,
-            custoTransporte: Number(cleanItem.custoTransporte) || 0,
-            custoAquisicao: Number(cleanItem.custoAquisicao) || 0,
-            createdAt: new Date().toISOString()
-          });
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws) as Record<string, any>[];
+      for (const item of data) {
+        await addDoc(collection(db, 'lotes'), {
+          ...item,
+          dataEntrada: item.dataEntrada || new Date().toISOString().split('T')[0],
+          quantidade: Number(item.quantidade) || 0,
+          codigoLote: String(item.codigoLote || '').trim().toUpperCase()
         });
-        await batch.commit();
-        alert("Importação Concluída!");
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      } catch (err) { alert("Erro ao importar."); }
+      }
+      e.target.value = '';
     };
     reader.readAsBinaryString(file);
   };
 
   const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(lotes.map(l => ({
-      Lote: l.codigoLote,
-      Tipo: l.tipo,
-      Qtd: l.quantidade,
-      CustoAquisicao: l.custoAquisicao,
-      Transporte: l.custoTransporte,
-      Data: l.dataEntrada
-    })));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Lotes");
-    XLSX.writeFile(wb, "Lotes_Fazenda.xlsx");
+    const dataToExport = lotes.map(l => {
+      const loteCode = String(l.codigoLote || '').trim().toUpperCase();
+      const out = abates.filter(a => String(a.loteId || '').toUpperCase() === loteCode).length + 
+                  vendas.filter(v => String(v.loteId || '').toUpperCase() === loteCode).length;
+      return {
+        'Lote': l.codigoLote, 'Data': l.dataEntrada, 'Tipo': l.tipo, 'Raça': l.raca,
+        'Qtd Inicial': l.quantidade, 'Saídas': out, 'Stock Atual': Number(l.quantidade) - out,
+        'P. Médio': l.pesoInicialMedio, 'C. Aquisição': l.custoAquisicao, 'Fornecedor': l.fornecedor
+      };
+    });
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Lotes");
+    XLSX.writeFile(workbook, "Relatorio_Lotes.xlsx");
   };
 
   const exportToPDF = () => {
-    const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.text("FAZENDA KWANZA - RELATÓRIO DE LOTES", 14, 15);
-    autoTable(docPDF, {
-      head: [["LOTE", "TIPO", "FORNECEDOR", "QTD", "DATA", "TOTAL (KZ)"]],
-      body: lotes.map(l => [
-        l.codigoLote, 
-        l.tipo, 
-        l.fornecedor, 
-        l.quantidade, 
-        formatDateDisplay(l.dataEntrada),
-        (Number(l.custoAquisicao || 0) + Number(l.custoTransporte || 0)).toLocaleString()
-      ]),
-      startY: 20,
-      headStyles: { fillColor: [16, 185, 129] }
+    const doc = new jsPDF('l', 'mm', 'a4');
+    doc.text("RELATÓRIO DE COMPOSIÇÃO DE LOTES", 14, 15);
+    const bodyData = lotes.map(l => {
+      const loteCode = String(l.codigoLote || '').trim().toUpperCase();
+      const out = abates.filter(a => String(a.loteId || '').toUpperCase() === loteCode).length + 
+                  vendas.filter(v => String(v.loteId || '').toUpperCase() === loteCode).length;
+      return [l.codigoLote, l.dataEntrada, l.tipo, l.raca, l.quantidade, out, Number(l.quantidade) - out, l.pesoInicialMedio, l.pesoFinalTransporte, l.custoTransporte, l.custoAquisicao, l.fornecedor];
     });
-    docPDF.save("Lotes_Kwanza.pdf");
+    autoTable(doc, {
+      startY: 25,
+      head: [['Lote', 'Data', 'Tipo', 'Raça', 'Qtd Ini', 'Saídas', 'Stock', 'P. Médio', 'P. Final', 'C. Transp', 'C. Aquis', 'Fornecedor']],
+      body: bodyData,
+      styles: { fontSize: 7 }
+    });
+    doc.save("Relatorio_Lotes.pdf");
   };
 
-  const handleSaveEdit = async () => {
-    if (editingId && editValue) {
-      await updateDoc(doc(db, 'lotes', editingId), {
-        ...editValue,
-        quantidade: Number(editValue.quantidade),
-        pesoInicialMedio: Number(editValue.pesoInicialMedio),
-        pesoFinalTransporte: Number(editValue.pesoFinalTransporte),
-        custoAquisicao: Number(editValue.custoAquisicao),
-        custoTransporte: Number(editValue.custoTransporte)
-      });
-      setEditingId(null);
-    }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = { ...formData, codigoLote: formData.codigoLote.trim().toUpperCase(), quantidade: Number(formData.quantidade), pesoInicialMedio: Number(formData.pesoInicialMedio), pesoFinalTransporte: Number(formData.pesoFinalTransporte), custoTransporte: Number(formData.custoTransporte), custoAquisicao: Number(formData.custoAquisicao) };
+    if (editingId) { await updateDoc(doc(db, 'lotes', editingId), payload); setEditingId(null); }
+    else { await addDoc(collection(db, 'lotes'), payload); }
+    setFormData(initialForm);
   };
 
   return (
-    <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
-      <header className="flex justify-between items-center shrink-0">
-        <div className="flex items-center gap-3">
-          <Package className="text-emerald-500" size={32} />
-          <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Lotes</h1>
-        </div>
-        <div className="flex gap-2">
-          {selectedIds.length > 0 && (
-            <button onClick={deleteSelected} className="bg-red-600 px-3 py-2 rounded-lg text-[10px] font-black text-white flex items-center gap-2">
-              <Trash2 size={14} /> ELIMINAR ({selectedIds.length})
-            </button>
-          )}
-          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".xlsx, .xls" />
-          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-all uppercase tracking-tighter">
-            <UploadCloud size={14} className="text-cyan-500" /> Importar Excel
+    <div className="p-4 flex flex-col h-screen bg-[#0a0f18] text-gray-200 overflow-hidden">
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-4 shrink-0">
+        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+          <Box className="text-blue-500" size={28} /> COMPOSIÇÃO DE LOTES
+        </h1>
+        <div className="flex gap-3">
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx, .xls, .csv" />
+          <button onClick={handleImportClick} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44] transition-all">
+            <CloudUpload size={18} className="text-cyan-400" /> IMPORTAR
           </button>
-          <button onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-all uppercase tracking-tighter">
-            <FileSpreadsheet size={14} className="text-emerald-500" /> Excel
+          <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44] transition-all">
+            <FileSpreadsheet size={18} className="text-emerald-500" /> EXCEL
           </button>
-          <button onClick={exportToPDF} className="bg-[#1a202e] border border-slate-800 px-3 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 hover:bg-slate-800 transition-all uppercase tracking-tighter">
-            <FileText size={14} className="text-red-500" /> PDF
+          <button onClick={exportToPDF} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44] transition-all">
+            <FileDown size={18} className="text-red-500" /> PDF
           </button>
         </div>
-      </header>
+      </div>
 
-      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
-        <div className="overflow-auto flex-1 custom-scrollbar"> 
-          <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1450px]">
-            <thead className="bg-[#11141d] text-slate-500 font-black uppercase text-[9px] sticky top-0 z-10">
+      {/* FORMULÁRIO */}
+      <div className="bg-[#111827]/50 p-6 rounded-2xl border border-gray-800/50 mb-4 shrink-0 shadow-xl">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+          <div className="space-y-2">
+            <label className="text-[10px] text-blue-400 font-black uppercase tracking-widest">Cód. Lote</label>
+            <input required className="w-full bg-black/40 border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 uppercase" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value})} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Data Entrada</label>
+            <input type="date" className="w-full bg-black/40 border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-blue-500" value={formData.dataEntrada} onChange={e => setFormData({...formData, dataEntrada: e.target.value})} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] text-blue-400 font-black uppercase tracking-widest">Qtd Inicial</label>
+            <input type="number" required className="w-full bg-black/40 border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-blue-500" value={formData.quantidade} onChange={e => setFormData({...formData, quantidade: e.target.value})} />
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl flex items-center justify-center gap-2 text-xs uppercase hover:bg-blue-500 transition-all shadow-lg">
+              {editingId ? <Check size={18} /> : <Plus size={18} />} NOVO LOTE
+            </button>
+            <button type="button" onClick={() => {setEditingId(null); setFormData(initialForm);}} className="bg-gray-800 text-gray-400 p-3 rounded-xl hover:bg-gray-700 transition-all"><RotateCcw size={20}/></button>
+          </div>
+          <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-6 gap-4 pt-4 border-t border-gray-800/30">
+            <input placeholder="Tipo" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none uppercase font-bold" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})} />
+            <input placeholder="Raça" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none uppercase font-bold" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value})} />
+            <input placeholder="Peso Médio" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none" value={formData.pesoInicialMedio} onChange={e => setFormData({...formData, pesoInicialMedio: e.target.value})} />
+            <input placeholder="Peso Final" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none" value={formData.pesoFinalTransporte} onChange={e => setFormData({...formData, pesoFinalTransporte: e.target.value})} />
+            <input placeholder="Custo Transp." className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none" value={formData.custoTransporte} onChange={e => setFormData({...formData, custoTransporte: e.target.value})} />
+            <input placeholder="Custo Aquis." className="bg-transparent border-b border-gray-800 p-2 text-xs text-blue-400 outline-none font-bold" value={formData.custoAquisicao} onChange={e => setFormData({...formData, custoAquisicao: e.target.value})} />
+          </div>
+        </form>
+      </div>
+
+      {/* TABELA */}
+      <div className="bg-[#111827]/30 rounded-2xl border border-gray-800 flex-1 flex flex-col min-h-0 shadow-2xl overflow-hidden">
+        <div className="flex-1 overflow-auto scrollbar-custom">
+          <table className="min-w-[1800px] w-full text-left text-[11px] border-separate border-spacing-0">
+            <thead className="bg-[#0f1522] text-gray-500 font-black uppercase sticky top-0 z-20">
               <tr>
-                <th className="p-4 border-b border-slate-800/50 w-10 text-center">
-                  <button onClick={toggleSelectAll}>
-                    {selectedIds.length === lotes.length && lotes.length > 0 ? <CheckSquare size={18} className="text-emerald-500"/> : <Square size={18}/>}
-                  </button>
-                </th>
-                <th className="p-4 border-b border-slate-800/50">LOTE</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">TIPO</th>
-                <th className="p-4 border-b border-slate-800/50">RAÇA</th>
-                <th className="p-4 border-b border-slate-800/50">FORNECEDOR</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">DATA ENTRADA</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">QTD</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">PESO INICIAL</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">PESO TRANSP.</th>
-                <th className="p-4 border-b border-slate-800/50 text-right text-emerald-500">CUSTO AQUIS.</th>
-                <th className="p-4 border-b border-slate-800/50 text-right text-slate-500">TRANSPORTE</th>
-                <th className="p-4 border-b border-slate-800/50 text-right">TOTAL (KZ)</th>
-                <th className="p-4 border-b border-slate-800/50 text-center">AÇÕES</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522] w-10"><Square size={16}/></th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Lote</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Data</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Tipo</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Raça</th>
+                <th className="p-4 text-center border-b border-gray-800 bg-[#0f1522]">Qtd Inicial</th>
+                <th className="p-4 text-center text-orange-500 border-b border-gray-800 bg-[#0f1522]">Saídas (Abate+Venda)</th>
+                <th className="p-4 text-center text-emerald-500 border-b border-gray-800 bg-[#0f1522]">Stock Atual</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">P. Médio Ini</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">P. Final Transp</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Custo Transp</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522] text-blue-400">Custo Aquisição</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Fornecedor</th>
+                <th className="p-4 text-center border-b border-gray-800 bg-[#0f1522] sticky right-0">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/20">
+            <tbody className="divide-y divide-gray-800/50">
               {lotes.map((l) => {
-                const total = Number(l.custoAquisicao || 0) + Number(l.custoTransporte || 0);
-                const isEditing = editingId === l.id;
-                const isSelected = selectedIds.includes(l.id);
+                const loteCode = String(l.codigoLote || '').trim().toUpperCase();
+                const out = abates.filter(a => String(a.loteId || '').trim().toUpperCase() === loteCode).length + 
+                            vendas.filter(v => String(v.loteId || '').trim().toUpperCase() === loteCode).length;
+                const saldo = Number(l.quantidade || 0) - out;
                 return (
-                  <tr key={l.id} className={`${isSelected ? 'bg-emerald-500/5' : ''} hover:bg-emerald-500/[0.02] transition-colors group`}>
+                  <tr key={l.id} className="hover:bg-blue-500/5 group transition-colors">
+                    <td className="p-4 text-center"><Square size={16} className="text-gray-700"/></td>
+                    <td className="p-4 font-black text-blue-500 text-sm italic uppercase">{l.codigoLote}</td>
+                    <td className="p-4 text-gray-400">{l.dataEntrada?.split('-').reverse().join('/')}</td>
+                    <td className="p-4 text-gray-400 uppercase font-bold">{l.tipo}</td>
+                    <td className="p-4 text-gray-400 uppercase font-bold">{l.raca}</td>
+                    <td className="p-4 text-center font-bold text-gray-200">{l.quantidade}</td>
+                    <td className="p-4 text-center text-orange-500 font-black">{out}</td>
                     <td className="p-4 text-center">
-                      <button onClick={() => toggleSelectOne(l.id)} className={isSelected ? 'text-emerald-500' : 'text-slate-700'}>
-                        {isSelected ? <CheckSquare size={18}/> : <Square size={18}/>}
-                      </button>
+                      <span className={`px-3 py-1 rounded-full border font-bold ${saldo <= 0 ? 'bg-red-500/10 text-red-500 border-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'}`}>
+                        {saldo} ANIMAIS
+                      </span>
                     </td>
-                    <td className="p-4 font-black text-cyan-500 uppercase">{l.codigoLote}</td>
-                    <td className="p-4 text-center font-bold text-slate-500 text-[9px] uppercase">{l.tipo}</td>
-                    <td className="p-4 font-bold text-slate-200 uppercase">{l.raca || '---'}</td>
-                    <td className="p-4 font-medium text-slate-400 uppercase">{l.fornecedor || '---'}</td>
-                    <td className="p-4 text-center text-slate-400 font-bold">{formatDateDisplay(l.dataEntrada)}</td>
-                    <td className="p-4 text-center">
-                      {isEditing ? <input type="number" className="w-16 bg-black border border-emerald-500 text-center rounded" value={editValue.quantidade} onChange={e => setEditValue({...editValue, quantidade: e.target.value})} /> : <span className="text-white font-black">{l.quantidade}</span>}
-                    </td>
-                    <td className="p-4 text-center text-slate-300 font-bold">
-                      {isEditing ? <input type="number" className="w-20 bg-black border border-emerald-500 text-center rounded" value={editValue.pesoInicialMedio} onChange={e => setEditValue({...editValue, pesoInicialMedio: e.target.value})} /> : `${l.pesoInicialMedio || 0} kg`}
-                    </td>
-                    <td className="p-4 text-center text-slate-500 font-medium">
-                      {isEditing ? <input type="number" className="w-20 bg-black border border-emerald-500 text-center rounded" value={editValue.pesoFinalTransporte} onChange={e => setEditValue({...editValue, pesoFinalTransporte: e.target.value})} /> : `${l.pesoFinalTransporte || 0} kg`}
-                    </td>
-                    <td className="p-4 text-right text-emerald-500 font-black">
-                      {isEditing ? <input type="number" className="w-24 bg-black border border-emerald-500 text-right rounded px-2" value={editValue.custoAquisicao} onChange={e => setEditValue({...editValue, custoAquisicao: e.target.value})} /> : Number(l.custoAquisicao).toLocaleString()}
-                    </td>
-                    <td className="p-4 text-right text-slate-400 font-medium">
-                      {isEditing ? <input type="number" className="w-24 bg-black border border-emerald-500 text-right rounded px-2" value={editValue.custoTransporte} onChange={e => setEditValue({...editValue, custoTransporte: e.target.value})} /> : Number(l.custoTransporte || 0).toLocaleString()}
-                    </td>
-                    <td className="p-4 text-right font-black text-white bg-white/5">{total.toLocaleString()}</td>
-                    <td className="p-4 text-center">
-                      <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {isEditing ? (
-                          <><button onClick={handleSaveEdit} className="text-emerald-500 hover:scale-110"><Check size={16}/></button>
-                          <button onClick={() => setEditingId(null)} className="text-red-500 hover:scale-110"><X size={16}/></button></>
-                        ) : (
-                          <><button onClick={() => { setEditingId(l.id); setEditValue({...l}); }} className="p-2 text-slate-600 hover:text-cyan-400"><Edit3 size={14}/></button>
-                          <button onClick={() => { if(confirm('Eliminar?')) deleteDoc(doc(db, 'lotes', l.id)) }} className="p-2 text-slate-700 hover:text-red-500"><Trash2 size={14}/></button></>
-                        )}
+                    <td className="p-4 text-gray-400">{l.pesoInicialMedio} kg</td>
+                    <td className="p-4 text-gray-400">{l.pesoFinalTransporte} kg</td>
+                    <td className="p-4 text-gray-400">{Number(l.custoTransporte || 0).toLocaleString()} KZ</td>
+                    <td className="p-4 font-bold text-blue-400">{Number(l.custoAquisicao || 0).toLocaleString()} KZ</td>
+                    <td className="p-4 text-gray-400 italic font-bold uppercase">{l.fornecedor}</td>
+                    <td className="p-4 text-center sticky right-0 bg-[#0a0f18] group-hover:bg-[#161d2b] transition-all">
+                      <div className="flex justify-center gap-3">
+                        <button onClick={() => { setEditingId(l.id); setFormData({...l}); }} className="text-gray-500 hover:text-white"><Edit3 size={18}/></button>
+                        <button onClick={() => deleteDoc(doc(db, 'lotes', l.id))} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
                       </div>
                     </td>
                   </tr>
@@ -268,41 +253,33 @@ export default function LotesPage() {
             </tbody>
           </table>
         </div>
+      </div>
 
-        {/* RESUMO FINAL ATUALIZADO */}
-        <div className="p-4 bg-[#11141d] border-t border-slate-800 flex justify-between items-center shrink-0 shadow-inner">
-          <div className="flex gap-12 px-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-cyan-500/10 rounded-lg text-cyan-500"><Layers size={20}/></div>
-              <div className="flex flex-col">
-                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Total Lotes</span>
-                <span className="text-lg font-black text-white leading-none">{totalLotes}</span>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500"><Package size={20}/></div>
-              <div className="flex flex-col">
-                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Total Animais</span>
-                <span className="text-lg font-black text-white leading-none">{totalAnimais.toLocaleString()}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
-                <span className="text-xs font-black">KZ</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Investimento Geral</span>
-                <span className="text-lg font-black text-emerald-500 leading-none">{custoTotalGeral.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-          <div className="px-6 text-right">
-             <p className="text-[9px] font-black text-slate-700 uppercase tracking-[0.2em] italic">Sistema de Gestão - Fazenda Kwanza</p>
-          </div>
+      {/* FOOTER RESUMO */}
+      <div className="p-4 bg-[#0c121d] border-t border-gray-800 grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
+        <div className="bg-[#1a2233]/50 p-3 rounded-xl border border-gray-800">
+          <span className="text-[9px] text-blue-400 font-black uppercase block">BOVINOS EM STOCK</span>
+          <span className="text-2xl font-black text-white">{resumo.bovinos}</span>
+        </div>
+        <div className="bg-[#1a2233]/50 p-3 rounded-xl border border-gray-800">
+          <span className="text-[9px] text-pink-400 font-black uppercase block">SUÍNOS EM STOCK</span>
+          <span className="text-2xl font-black text-white">{resumo.suinos}</span>
+        </div>
+        <div className="bg-[#1a2233]/50 p-3 rounded-xl border border-gray-800">
+          <span className="text-[9px] text-orange-500 font-black uppercase block">TOTAL SAÍDAS GLOBAIS</span>
+          <span className="text-2xl font-black text-white">{resumo.totalSaidas}</span>
+        </div>
+        <div className="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 text-right">
+          <span className="text-[9px] text-emerald-500 font-black uppercase block">STOCK TOTAL REAL</span>
+          <span className="text-2xl font-black text-emerald-500">{resumo.stockGlobal}</span>
         </div>
       </div>
+
+      <style>{`
+        .scrollbar-custom::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-custom::-webkit-scrollbar-track { background: #0a0f18; }
+        .scrollbar-custom::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 10px; }
+      `}</style>
     </div>
   );
 }
