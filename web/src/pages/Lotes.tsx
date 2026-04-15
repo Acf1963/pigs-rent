@@ -56,16 +56,12 @@ export default function LotesPage() {
     
     lotes.forEach(l => {
       const loteRef = String(l.codigoLote || '').trim();
-      const qtdInicial = Number(l.quantidade || 0);
-      const tipo = String(l.tipo || '').toUpperCase();
-      
       const nA = abates.filter(a => String(a.loteId || '').trim() === loteRef).length;
       const nV = vendas.filter(v => String(v.codigoLote || '').trim() === loteRef && v.brinco).length;
-      
-      const vivo = qtdInicial - nA;
+      const vivo = Number(l.quantidade || 0) - nA;
       const carc = nA - nV;
 
-      if (tipo.includes('BOVINO')) { 
+      if (String(l.tipo).toUpperCase().includes('BOVINO')) { 
         bStock += vivo; bLotes++; bAbates += nA; bCarc += carc;
       } else { 
         sStock += vivo; sLotes++; sAbates += nA; sCarc += carc;
@@ -74,6 +70,8 @@ export default function LotesPage() {
 
     return {
       totalAbates: abates.length,
+      totalLotes: bLotes + sLotes,
+      totalCarcacas: bCarc + sCarc,
       stockGlobal: bStock + sStock,
       bovinos: { vivos: bStock, qtd: bLotes, abates: bAbates, carcaca: bCarc },
       suinos: { vivos: sStock, qtd: sLotes, abates: sAbates, carcaca: sCarc }
@@ -81,8 +79,6 @@ export default function LotesPage() {
   };
 
   const resumo = getResumoTotal();
-
-  const handleImportClick = () => fileInputRef.current?.click();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -107,7 +103,7 @@ export default function LotesPage() {
   };
 
   const exportToExcel = () => {
-    const dataToExport = lotes.map(l => {
+    const dataMain = lotes.map(l => {
       const loteRef = String(l.codigoLote || '').trim();
       const nA = abates.filter(a => String(a.loteId || '').trim() === loteRef).length;
       const nV = vendas.filter(v => String(v.codigoLote || '').trim() === loteRef && v.brinco).length;
@@ -118,28 +114,55 @@ export default function LotesPage() {
         'Stock Carcaça': nA - nV, 'Fornecedor': l.fornecedor
       };
     });
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+
+    const worksheet = XLSX.utils.json_to_sheet(dataMain);
+    
+    XLSX.utils.sheet_add_aoa(worksheet, [
+      [],
+      ["RESUMO POR ESPÉCIE", "LOTES", "ABATES", "VIVOS", "CARCAÇA"],
+      ["BOVINOS", resumo.bovinos.qtd, resumo.bovinos.abates, resumo.bovinos.vivos, resumo.bovinos.carcaca],
+      ["SUÍNOS", resumo.suinos.qtd, resumo.suinos.abates, resumo.suinos.vivos, resumo.suinos.carcaca],
+      ["TOTAL GERAL", resumo.totalLotes, resumo.totalAbates, resumo.stockGlobal, resumo.totalCarcacas]
+    ], { origin: -1 });
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Lotes");
-    XLSX.writeFile(workbook, "Relatorio_Lotes.xlsx");
+    XLSX.writeFile(workbook, "Relatorio_Composicao_Lotes.xlsx");
   };
 
   const exportToPDF = () => {
     const doc = new jsPDF('l', 'mm', 'a4');
+    doc.setFontSize(14);
     doc.text("RELATÓRIO DE COMPOSIÇÃO DE LOTES", 14, 15);
+    
     const bodyData = lotes.map(l => {
       const loteRef = String(l.codigoLote || '').trim();
       const nA = abates.filter(a => String(a.loteId || '').trim() === loteRef).length;
       const nV = vendas.filter(v => String(v.codigoLote || '').trim() === loteRef && v.brinco).length;
       return [l.codigoLote, l.dataEntrada, l.tipo, l.raca, l.quantidade, nA, Number(l.quantidade) - nA, nA - nV, l.pesoInicialMedio, l.fornecedor];
     });
+
     autoTable(doc, {
       startY: 25,
       head: [['Lote', 'Data', 'Tipo', 'Raça', 'Qtd Ini', 'Abates', 'Stock Vivo', 'Stock Carc.', 'P. Médio', 'Fornecedor']],
       body: bodyData,
       styles: { fontSize: 7 }
     });
-    doc.save("Relatorio_Lotes.pdf");
+
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 10,
+      head: [['RESUMO POR ESPÉCIE', 'LOTES', 'ABATES', 'VIVOS', 'CARCAÇA']],
+      body: [
+        ['BOVINOS', resumo.bovinos.qtd, resumo.bovinos.abates, resumo.bovinos.vivos, resumo.bovinos.carcaca],
+        ['SUÍNOS', resumo.suinos.qtd, resumo.suinos.abates, resumo.suinos.vivos, resumo.suinos.carcaca],
+        ['TOTAIS', resumo.totalLotes, resumo.totalAbates, resumo.stockGlobal, resumo.totalCarcacas]
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [31, 41, 55] },
+      columnStyles: { 0: { fontStyle: 'bold' } }
+    });
+
+    doc.save("Relatorio_Composicao_Lotes.pdf");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -160,13 +183,14 @@ export default function LotesPage() {
 
   return (
     <div className="fixed inset-0 ml-64 p-4 flex flex-col bg-[#0a0f18] text-gray-200 font-sans overflow-hidden">
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-4 shrink-0">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2 uppercase tracking-tight">
           <Box className="text-blue-500" size={28} /> COMPOSIÇÃO DE LOTES
         </h1>
         <div className="flex gap-2">
           <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-          <button onClick={handleImportClick} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44]">
+          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44]">
             <CloudUpload size={18} className="text-cyan-400" /> IMPORTAR
           </button>
           <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44]">
@@ -178,6 +202,7 @@ export default function LotesPage() {
         </div>
       </div>
 
+      {/* FORMULÁRIO */}
       <div className="bg-[#111827]/50 p-6 rounded-2xl border border-gray-800/50 mb-4 shrink-0 shadow-xl">
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
           <div className="space-y-2">
@@ -199,16 +224,20 @@ export default function LotesPage() {
             <button type="button" onClick={() => {setEditingId(null); setFormData(initialForm);}} className="bg-gray-800 text-gray-400 p-3 rounded-xl hover:bg-gray-700"><RotateCcw size={20}/></button>
           </div>
           <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-6 gap-4 pt-4 border-t border-gray-800/30">
-            <input placeholder="Tipo" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none uppercase font-bold" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})} />
+            <select className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none uppercase font-bold" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})}>
+              <option value="SUÍNO">SUÍNO</option>
+              <option value="BOVINO">BOVINO</option>
+            </select>
             <input placeholder="Raça" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none uppercase font-bold" value={formData.raca} onChange={e => setFormData({...formData, raca: e.target.value})} />
             <input placeholder="Peso Médio" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none" value={formData.pesoInicialMedio} onChange={e => setFormData({...formData, pesoInicialMedio: e.target.value})} />
             <input placeholder="Peso Final" className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none" value={formData.pesoFinalTransporte} onChange={e => setFormData({...formData, pesoFinalTransporte: e.target.value})} />
             <input placeholder="Custo Transp." className="bg-transparent border-b border-gray-800 p-2 text-xs text-gray-400 outline-none" value={formData.custoTransporte} onChange={e => setFormData({...formData, custoTransporte: e.target.value})} />
-            <input placeholder="Custo Aquis." className="bg-transparent border-b border-gray-800 p-2 text-xs text-blue-400 outline-none font-bold" value={formData.custoAquisicao} onChange={e => setFormData({...formData, custoAquisicao: e.target.value})} />
+            <input placeholder="Fornecedor" className="bg-transparent border-b border-gray-800 p-2 text-xs text-blue-400 outline-none font-bold uppercase" value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value})} />
           </div>
         </form>
       </div>
 
+      {/* TABELA */}
       <div className="bg-[#111827]/30 rounded-2xl border border-gray-800 mb-4 flex-1 min-h-0 shadow-2xl overflow-hidden">
         <div className="h-full overflow-auto scrollbar-custom">
           <table className="min-w-[1800px] w-full text-left text-[11px] border-separate border-spacing-0">
@@ -223,44 +252,38 @@ export default function LotesPage() {
                 <th className="p-4 text-center text-orange-500 border-b border-gray-800 bg-[#0f1522]">Abates</th>
                 <th className="p-4 text-center text-emerald-500 border-b border-gray-800 bg-[#0f1522]">Stock Vivo</th>
                 <th className="p-4 text-center text-blue-400 border-b border-gray-800 bg-[#0f1522]">Stock Carcaça</th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">P. Médio Ini</th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Custo Transp</th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522] text-blue-400">Custo Aquisição</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">P. Médio</th>
                 <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Fornecedor</th>
                 <th className="p-4 text-center border-b border-gray-800 bg-[#0f1522] sticky right-0">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
               {lotes.map((l) => {
-                const loteRef = String(l.codigoLote || '').trim();
-                const nA = abates.filter(a => String(a.loteId || '').trim() === loteRef).length;
-                const nV = vendas.filter(v => String(v.codigoLote || '').trim() === loteRef && v.brinco).length;
-                const saldoVivo = Number(l.quantidade || 0) - nA;
-                const stockCarcaca = nA - nV;
-
+                const nA = abates.filter(a => String(a.loteId).trim() === String(l.codigoLote).trim()).length;
+                const nV = vendas.filter(v => String(v.codigoLote).trim() === String(l.codigoLote).trim() && v.brinco).length;
+                const vivo = Number(l.quantidade) - nA;
+                const carc = nA - nV;
                 return (
-                  <tr key={l.id} className="hover:bg-blue-500/5 group">
+                  <tr key={l.id} className="hover:bg-blue-500/5 group text-gray-300">
                     <td className="p-4 text-center"><Square size={16} className="text-gray-700"/></td>
                     <td className="p-4 font-black text-blue-500 text-sm italic uppercase">{l.codigoLote}</td>
-                    <td className="p-4 text-gray-400">{l.dataEntrada?.split('-').reverse().join('/')}</td>
-                    <td className="p-4 text-gray-400 uppercase font-bold">{l.tipo}</td>
-                    <td className="p-4 text-gray-400 uppercase font-bold">{l.raca}</td>
+                    <td className="p-4">{l.dataEntrada?.split('-').reverse().join('/')}</td>
+                    <td className="p-4 uppercase font-bold">{l.tipo}</td>
+                    <td className="p-4 uppercase font-bold">{l.raca}</td>
                     <td className="p-4 text-center font-bold text-gray-200">{l.quantidade}</td>
                     <td className="p-4 text-center text-orange-500 font-black">{nA}</td>
                     <td className="p-4 text-center">
-                      <span className={`px-3 py-1 rounded-full border font-bold ${saldoVivo <= 0 ? 'text-red-500 border-red-500/20' : 'text-emerald-500 border-emerald-500/20'}`}>
-                        {saldoVivo} VIVOS
+                      <span className={`px-3 py-1 rounded-full border font-bold ${vivo <= 0 ? 'text-red-500 border-red-500/20' : 'text-emerald-500 border-emerald-500/20'}`}>
+                        {vivo} VIVOS
                       </span>
                     </td>
                     <td className="p-4 text-center">
-                      <span className={`font-black text-sm ${stockCarcaca > 0 ? 'text-blue-400' : 'text-gray-600'}`}>
-                        {stockCarcaca} UN
+                      <span className={`font-black text-sm ${carc > 0 ? 'text-blue-400' : 'text-gray-600'}`}>
+                        {carc} UN
                       </span>
                     </td>
-                    <td className="p-4 text-gray-400">{l.pesoInicialMedio} kg</td>
-                    <td className="p-4 text-gray-400">{Number(l.custoTransporte || 0).toLocaleString()} KZ</td>
-                    <td className="p-4 font-bold text-blue-400">{Number(l.custoAquisicao || 0).toLocaleString()} KZ</td>
-                    <td className="p-4 text-gray-400 italic font-bold uppercase">{l.fornecedor}</td>
+                    <td className="p-4">{l.pesoInicialMedio} kg</td>
+                    <td className="p-4 italic font-bold uppercase">{l.fornecedor}</td>
                     <td className="p-4 text-center sticky right-0 bg-[#0a0f18] group-hover:bg-[#161d2b]">
                       <div className="flex justify-center gap-3">
                         <button onClick={() => { setEditingId(l.id); setFormData({...l}); }} className="text-gray-500 hover:text-white"><Edit3 size={18}/></button>
@@ -275,13 +298,13 @@ export default function LotesPage() {
         </div>
       </div>
 
-      {/* RODAPÉ MANTENDO O TEU LAYOUT ORIGINAL COM O ACRÉSCIMO DE INFO SOLICITADO */}
+      {/* RODAPÉ - LEITURA OTIMIZADA */}
       <div className="p-4 bg-[#0c121d] border border-gray-800 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0 shadow-2xl">
-        <div className="bg-[#1a2233]/50 p-3 rounded-xl border border-gray-800 flex flex-col justify-between">
-          <span className="text-[9px] text-blue-400 font-black uppercase block tracking-tighter">BOVINOS EM STOCK (VIVOS)</span>
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-28">
+          <span className="text-[10px] text-blue-400 font-black uppercase block tracking-widest">BOVINOS EM STOCK</span>
           <div className="flex items-end justify-between">
-            <span className="text-3xl font-black text-white">{resumo.bovinos.vivos}</span>
-            <div className="text-[9px] text-gray-500 text-right leading-tight font-bold">
+            <span className="text-4xl font-black text-white leading-none">{resumo.bovinos.vivos}</span>
+            <div className="text-[10px] text-gray-500 text-right leading-tight font-bold">
               <div>{resumo.bovinos.qtd} LOTES</div>
               <div>{resumo.bovinos.abates} ABATES</div>
               <div className="text-blue-400">{resumo.bovinos.carcaca} CARC.</div>
@@ -289,11 +312,11 @@ export default function LotesPage() {
           </div>
         </div>
         
-        <div className="bg-[#1a2233]/50 p-3 rounded-xl border border-gray-800 flex flex-col justify-between">
-          <span className="text-[9px] text-pink-400 font-black uppercase block tracking-tighter">SUÍNOS EM STOCK (VIVOS)</span>
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-28">
+          <span className="text-[10px] text-pink-400 font-black uppercase block tracking-widest">SUÍNOS EM STOCK</span>
           <div className="flex items-end justify-between">
-            <span className="text-3xl font-black text-white">{resumo.suinos.vivos}</span>
-            <div className="text-[9px] text-gray-500 text-right leading-tight font-bold">
+            <span className="text-4xl font-black text-white leading-none">{resumo.suinos.vivos}</span>
+            <div className="text-[10px] text-gray-500 text-right leading-tight font-bold">
               <div>{resumo.suinos.qtd} LOTES</div>
               <div>{resumo.suinos.abates} ABATES</div>
               <div className="text-blue-400">{resumo.suinos.carcaca} CARC.</div>
@@ -301,14 +324,14 @@ export default function LotesPage() {
           </div>
         </div>
 
-        <div className="bg-[#1a2233]/50 p-3 rounded-xl border border-gray-800">
-          <span className="text-[9px] text-orange-500 font-black uppercase block tracking-tighter">TOTAL ABATES</span>
-          <span className="text-2xl font-black text-white">{resumo.totalAbates}</span>
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-center h-28">
+          <span className="text-[10px] text-orange-500 font-black uppercase block tracking-widest mb-1">TOTAL ABATES</span>
+          <span className="text-4xl font-black text-white leading-none">{resumo.totalAbates}</span>
         </div>
 
-        <div className="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 text-right">
-          <span className="text-[9px] text-emerald-500 font-black uppercase block tracking-tighter">STOCK VIVO REAL</span>
-          <span className="text-2xl font-black text-emerald-500">{resumo.stockGlobal}</span>
+        <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-right flex flex-col justify-center h-28">
+          <span className="text-[10px] text-emerald-500 font-black uppercase block tracking-widest mb-1">STOCK VIVO REAL</span>
+          <span className="text-4xl font-black text-emerald-500 leading-none">{resumo.stockGlobal}</span>
         </div>
       </div>
 
