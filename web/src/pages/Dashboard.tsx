@@ -1,171 +1,155 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import { 
-  LayoutGrid, TrendingUp, Package, Activity, 
-  AlertTriangle, ArrowUpRight, CheckCircle2 
+  LayoutDashboard, HeartPulse, Beef, 
+  Utensils, Truck, Activity,
+  ClipboardList
 } from 'lucide-react';
 
-export default function Dashboard() {
-  const [stats, setStats] = useState({
-    investimento: 0,
-    lotesAtivos: 0,
-    mediaCarcaca: 0,
-    alertas: 0,
-    statusSanitario: 'Livre'
-  });
+export default function DashboardPage() {
+  const [vendas, setVendas] = useState<any[]>([]);
+  const [lotes, setLotes] = useState<any[]>([]);
+  const [saude, setSaude] = useState<any[]>([]);
+  const [alimentacao, setAlimentacao] = useState<any[]>([]);
+  const [abates, setAbates] = useState<any[]>([]);
 
   useEffect(() => {
-    // 1. Cálculo de Investimento Total (Alimentação + Saúde)
-    const unsubAlim = onSnapshot(collection(db, 'alimentacao'), (snap) => {
-      const totalAlim = snap.docs.reduce((acc, doc) => acc + (Number(doc.data().quantidadeKg) * Number(doc.data().custoUnitario)), 0);
-      setStats(prev => ({ ...prev, investimento: prev.investimento + totalAlim }));
-    });
-
-    // 2. Lotes Ativos
-    const unsubLotes = onSnapshot(collection(db, 'lotes'), (snap) => {
-      setStats(prev => ({ ...prev, lotesAtivos: snap.size }));
-    });
-
-    // 3. Média de Carcaça (dos Abates)
-    const unsubAbates = onSnapshot(collection(db, 'abates'), (snap) => {
-      const total = snap.docs.reduce((acc, doc) => acc + Number(doc.data().carcacaKg || 0), 0);
-      const media = snap.size > 0 ? total / snap.size : 0;
-      setStats(prev => ({ ...prev, mediaCarcaca: media }));
-    });
-
-    return () => { unsubAlim(); unsubLotes(); unsubAbates(); };
+    const unsubs = [
+      onSnapshot(query(collection(db, 'vendas')), (s) => setVendas(s.docs.map(d => d.data()))),
+      onSnapshot(query(collection(db, 'lotes')), (s) => setLotes(s.docs.map(d => d.data()))),
+      onSnapshot(query(collection(db, 'saude')), (s) => setSaude(s.docs.map(d => d.data()))),
+      onSnapshot(query(collection(db, 'alimentacao')), (s) => setAlimentacao(s.docs.map(d => d.data()))),
+      onSnapshot(query(collection(db, 'abates')), (s) => setAbates(s.docs.map(d => d.data())))
+    ];
+    return () => unsubs.forEach(unsub => unsub());
   }, []);
 
+  // --- 1. INVENTÁRIO POR ESPÉCIE ---
+  const cabecasB = lotes.filter(l => String(l.codigoLote || '').toUpperCase().includes('-B'))
+                        .reduce((acc, l) => acc + Number(l.quantidade || 0), 0);
+  const cabecasS = lotes.filter(l => String(l.codigoLote || '').toUpperCase().includes('-S'))
+                        .reduce((acc, l) => acc + Number(l.quantidade || 0), 0);
+  const totalCabecas = cabecasB + cabecasS;
+
+  // --- 2. CUSTOS TOTAIS ---
+  const totalAlim = alimentacao.reduce((acc, a) => {
+    const qtd = Number(a.quantidadeKg || 0);
+    const preco = Number(a.custoUnitario || 0); 
+    return acc + (qtd * preco);
+  }, 0);
+
+  const totalSaude = saude.reduce((acc, s) => acc + Number(s.custoMedicamento || 0), 0);
+  const totalTransp = lotes.reduce((acc, l) => acc + Number(l.custoTransporte || 0), 0);
+  
+  const rácioUnitario = totalCabecas > 0 ? (totalAlim + totalSaude + totalTransp) / totalCabecas : 0;
+
+  // --- 3. PERFORMANCE BOVINA (-B) ---
+  const vendasB = vendas.filter(v => String(v.loteId || v.codigoLote || '').toUpperCase().includes('-B'));
+  const faturamentoB = vendasB.reduce((acc, v) => acc + (Number(v.pesoKg || 0) * Number(v.precoKz || 0)), 0);
+  const custoAlocadoB = vendasB.length * rácioUnitario;
+  const margemB = faturamentoB - custoAlocadoB;
+
+  const abatesB = abates.filter(a => String(a.loteId || '').toUpperCase().includes('-B'));
+  const mediaAbateB = abatesB.length > 0 ? (abatesB.reduce((acc, a) => acc + Number(a.pesoAbate || 0), 0) / abatesB.length).toFixed(1) : "0";
+
+  // --- 4. PERFORMANCE SUÍNA (-S) ---
+  const vendasS = vendas.filter(v => String(v.loteId || v.codigoLote || '').toUpperCase().includes('-S'));
+  const faturamentoS = vendasS.reduce((acc, v) => acc + (Number(v.pesoKg || 0) * Number(v.precoKz || 0)), 0);
+  const custoAlocadoS = vendasS.length * rácioUnitario;
+  const margemS = faturamentoS - custoAlocadoS;
+
+  const abatesS = abates.filter(a => String(a.loteId || '').toUpperCase().includes('-S'));
+  const mediaAbateS = abatesS.length > 0 ? (abatesS.reduce((acc, a) => acc + Number(a.pesoAbate || 0), 0) / abatesS.length).toFixed(1) : "0";
+
   return (
-    <div className="min-h-full w-full flex flex-col space-y-6 p-2 pb-24 md:pb-6">
+    <div className="min-h-screen bg-[#0a0f18] text-gray-200 p-8 font-sans overflow-y-auto">
       
-      {/* Cabeçalho Adaptativo */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/50 pb-6">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-cyan-500/10 text-cyan-500 rounded-2xl border border-cyan-500/20 shadow-inner">
-            <LayoutGrid size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none">Painel de Controlo</h1>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1 italic">Fazenda Kwanza — Luanda</p>
-          </div>
+      <header className="flex justify-between items-center mb-10">
+        <div>
+          <h1 className="text-3xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+            <LayoutDashboard className="text-emerald-500" size={32} />
+            MATADOURO CENTRAL
+          </h1>
+          <p className="text-slate-500 text-sm font-bold uppercase tracking-[0.3em]">Gestão de Margem por Espécie</p>
         </div>
-        <div className="hidden md:block bg-[#161922] px-4 py-2 rounded-full text-[10px] font-black text-emerald-500 uppercase tracking-widest border border-emerald-500/20">
-          Sistema Online • 2026
+        <div className="bg-[#111827] border border-emerald-500/20 p-5 rounded-2xl text-right">
+          <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Faturamento Global</p>
+          <p className="text-3xl font-black text-white">{(faturamentoB + faturamentoS).toLocaleString()} Kz</p>
         </div>
       </header>
 
-      {/* Grid de Métricas: 1 col mobile, 2 tablet, 4 desktop */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard 
-          title="Investimento Total" 
-          value={`${stats.investimento.toLocaleString()} Kz`} 
-          sub="Nutrição + Saúde" 
-          icon={<TrendingUp size={20}/>} 
-          trend="Real" 
-        />
-        <MetricCard 
-          title="Lotes Ativos" 
-          value={stats.lotesAtivos.toString()} 
-          sub="Em engorda atual" 
-          icon={<Package size={20}/>} 
-          trend="Estável" 
-        />
-        <MetricCard 
-          title="Média Carcaça" 
-          value={`${stats.mediaCarcaca.toFixed(1)} kg`} 
-          sub="Ref. últimos abates" 
-          icon={<Activity size={20}/>} 
-          trend="Apurado" 
-        />
-        <MetricCard 
-          title="Alertas Sanitários" 
-          value={stats.alertas.toString()} 
-          sub="Carência Medicar" 
-          icon={<AlertTriangle size={20}/>} 
-          trend="Seguro" 
-          status={stats.alertas > 0 ? "danger" : "safe"} 
-        />
-      </div>
-
-      {/* Área Central */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-10">
         
-        {/* Card de Desempenho (Principal) */}
-        <div className="lg:col-span-2 bg-[#161922] rounded-[2.5rem] p-8 shadow-2xl border border-slate-800/50 flex flex-col items-center justify-center text-center group hover:border-cyan-500/30 transition-all min-h-[300px]">
-          <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center text-slate-700 group-hover:text-cyan-500 group-hover:scale-110 transition-all mb-6 border border-slate-800 shadow-inner">
-            <Activity size={40} />
-          </div>
-          <h3 className="text-xl font-black text-white uppercase tracking-tight">Análise de Lucratividade</h3>
-          <p className="text-slate-500 text-xs max-w-sm mt-3 font-medium leading-relaxed">
-            O sistema está a processar os dados de <span className="text-cyan-500">Vendas vs. Custos Operacionais</span>. Consulte o módulo Comercial para o balanço detalhado.
-          </p>
-          <div className="mt-8 flex gap-2">
-             <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></div>
-             <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse delay-75"></div>
-             <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse delay-150"></div>
-          </div>
-        </div>
-
-        {/* Painel Operacional Lateral */}
-        <div className="bg-[#161922] rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden border border-slate-800/50">
-          <div className="absolute -top-10 -right-10 opacity-[0.03] text-white rotate-12">
-            <LayoutGrid size={250} />
+        {/* SECTOR BOVINO */}
+        <div className="bg-[#111827]/40 border-t-4 border-cyan-500 p-6 rounded-b-3xl backdrop-blur-md">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <Beef className="text-cyan-400" size={28} />
+              <h2 className="text-xl font-black text-white uppercase italic">Bovinos</h2>
+            </div>
+            <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-3 py-1 rounded-full font-bold uppercase">Média {mediaAbateB} Kg</span>
           </div>
           
-          <h3 className="text-lg font-black mb-10 flex items-center gap-3 relative z-10 text-cyan-400 uppercase tracking-tighter">
-            <ArrowUpRight size={22} className="bg-cyan-400/10 p-1 rounded-lg"/>
-            Estado Operacional
-          </h3>
-          
-          <div className="space-y-8 relative z-10">
-            <StatusRow label="Status Sanitário" value="LIVRE P/ ABATE" color="text-emerald-400" icon={<CheckCircle2 size={14}/>} />
-            <StatusRow label="Maneio Alimentar" value="EM CURSO" color="text-cyan-500" />
-            <StatusRow label="Custo Unitário" value="CÁLCULO ATIVO" color="text-slate-300" />
-            
-            <div className="pt-6">
-              <div className="bg-[#0f1117] rounded-3xl p-5 border border-slate-800/80 shadow-inner group hover:bg-slate-900 transition-colors">
-                <p className="text-[10px] text-slate-500 uppercase font-black mb-2 tracking-[0.2em]">Próxima Vacinação</p>
-                <p className="text-sm font-black text-cyan-400/80 italic font-mono flex items-center gap-2">
-                   NENHUM AGENDAMENTO
-                </p>
-              </div>
+          <div className="space-y-3">
+            <div className="flex justify-between text-sm"><span className="text-slate-500 uppercase font-bold">Vendas</span><span className="font-black text-white">{faturamentoB.toLocaleString()} Kz</span></div>
+            <div className="flex justify-between text-sm"><span className="text-slate-500 uppercase font-bold">Unidades Vendidas</span><span className="font-black text-cyan-400">{vendasB.length}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-slate-500 uppercase font-bold">Custo Alocado</span><span className="font-black text-amber-500">-{custoAlocadoB.toLocaleString()} Kz</span></div>
+            <div className={`mt-4 p-4 rounded-xl flex justify-between items-center ${margemB >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+              <span className="text-xs font-black uppercase text-white">Resultado</span>
+              <span className={`text-xl font-black ${margemB >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{margemB.toLocaleString()} Kz</span>
             </div>
           </div>
         </div>
 
-      </div>
-    </div>
-  );
-}
-
-// Componentes Auxiliares
-function MetricCard({ title, value, sub, icon, trend, status }: any) {
-  return (
-    <div className="bg-[#161922] rounded-[2rem] p-6 shadow-xl border border-slate-800/50 relative overflow-hidden group hover:border-cyan-500/50 transition-all active:scale-[0.98]">
-      <div className="flex justify-between items-start mb-6">
-        <div className="p-3 bg-slate-900 text-cyan-500 rounded-2xl border border-slate-800 group-hover:bg-cyan-500 group-hover:text-white transition-all shadow-inner">
-          {icon}
+        {/* SECTOR SUÍNO */}
+        <div className="bg-[#111827]/40 border-t-4 border-pink-500 p-6 rounded-b-3xl backdrop-blur-md">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <Activity className="text-pink-400" size={28} />
+              <h2 className="text-xl font-black text-white uppercase italic">Suínos</h2>
+            </div>
+            <span className="text-[10px] bg-pink-500/10 text-pink-400 px-3 py-1 rounded-full font-bold uppercase">Média {mediaAbateS} Kg</span>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex justify-between text-sm"><span className="text-slate-500 uppercase font-bold">Vendas</span><span className="font-black text-white">{faturamentoS.toLocaleString()} Kz</span></div>
+            <div className="flex justify-between text-sm"><span className="text-slate-500 uppercase font-bold">Unidades Vendidas</span><span className="font-black text-pink-400">{vendasS.length}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-slate-500 uppercase font-bold">Custo Alocado</span><span className="font-black text-amber-500">-{custoAlocadoS.toLocaleString()} Kz</span></div>
+            <div className={`mt-4 p-4 rounded-xl flex justify-between items-center ${margemS >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+              <span className="text-xs font-black uppercase text-white">Resultado</span>
+              <span className={`text-xl font-black ${margemS >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{margemS.toLocaleString()} Kz</span>
+            </div>
+          </div>
         </div>
-        <span className={`text-[9px] font-black px-3 py-1 rounded-full border tracking-widest uppercase ${status === 'danger' ? 'bg-red-500/10 text-red-500 border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
-          {trend}
-        </span>
       </div>
-      <h4 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mb-2">{title}</h4>
-      <div className="text-2xl md:text-3xl font-black text-white tracking-tighter group-hover:text-cyan-400 transition-colors">{value}</div>
-      <p className="text-slate-600 text-[9px] font-bold uppercase mt-2 tracking-wider border-t border-slate-800/50 pt-2">{sub}</p>
-    </div>
-  );
-}
 
-function StatusRow({ label, value, color = "text-slate-300", icon }: any) {
-  return (
-    <div className="flex justify-between items-center border-b border-slate-800/30 pb-4 group hover:border-slate-700 transition-colors">
-      <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{label}</span>
-      <span className={`text-[11px] font-black flex items-center gap-2 ${color} tracking-tight`}>
-        {icon} {value}
-      </span>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="bg-[#111827]/60 p-5 rounded-2xl border border-white/5 shadow-lg">
+          <Utensils className="text-amber-500 mb-2" size={20} />
+          <p className="text-[10px] font-bold text-slate-500 uppercase">Alimentação Total</p>
+          <p className="text-lg font-black text-white">{totalAlim.toLocaleString()} Kz</p>
+        </div>
+        <div className="bg-[#111827]/60 p-5 rounded-2xl border border-white/5 shadow-lg">
+          <HeartPulse className="text-red-500 mb-2" size={20} />
+          <p className="text-[10px] font-bold text-slate-500 uppercase">Saúde Total</p>
+          <p className="text-lg font-black text-white">{totalSaude.toLocaleString()} Kz</p>
+        </div>
+        <div className="bg-[#111827]/60 p-5 rounded-2xl border border-white/5 shadow-lg">
+          <Truck className="text-blue-500 mb-2" size={20} />
+          <p className="text-[10px] font-bold text-slate-500 uppercase">Transporte Total</p>
+          <p className="text-lg font-black text-white">{totalTransp.toLocaleString()} Kz</p>
+        </div>
+      </div>
+
+      <footer className="p-6 bg-white/5 rounded-3xl border border-white/5 flex justify-between items-center opacity-60">
+        <div className="flex gap-10">
+            <div><p className="text-[10px] font-bold uppercase">Bovinos em Stock</p><p className="text-xl font-black text-white">{cabecasB}</p></div>
+            <div><p className="text-[10px] font-bold uppercase">Suínos em Stock</p><p className="text-xl font-black text-white">{cabecasS}</p></div>
+            <div><p className="text-[10px] font-bold text-emerald-500 uppercase">Rácio/Cabeça</p><p className="text-xl font-black text-emerald-500">{rácioUnitario.toLocaleString(undefined, {maximumFractionDigits:0})} Kz</p></div>
+        </div>
+        <ClipboardList size={32} />
+      </footer>
     </div>
   );
 }
