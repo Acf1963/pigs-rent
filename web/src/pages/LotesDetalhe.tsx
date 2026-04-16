@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { 
   collection, addDoc, onSnapshot, query, 
@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { 
   Users, Plus, Trash2, Search,
-  UploadCloud, FileSpreadsheet, FileText, Square, CheckSquare, Scale, Tag
+  UploadCloud, FileSpreadsheet, FileText, Square, CheckSquare, Scale, Tag, Layers
 } from 'lucide-react';
 
 import jsPDF from 'jspdf';
@@ -64,10 +64,8 @@ export default function LotesDetalhePage() {
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (importHistory.includes(file.name)) {
       alert(`O ficheiro "${file.name}" já foi importado nesta sessão.`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
@@ -76,18 +74,13 @@ export default function LotesDetalhePage() {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data: any[] = XLSX.utils.sheet_to_json(ws);
-
+        const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
         const batch = writeBatch(db);
         let countImportados = 0;
-        let countDuplicados = 0;
 
         data.forEach((row: any) => {
           const brincoLimpo = String(row.brinco || '').toUpperCase();
-          const existe = animais.some(a => a.brinco === brincoLimpo);
-
-          if (!existe && brincoLimpo !== '') {
+          if (!animais.some(a => a.brinco === brincoLimpo) && brincoLimpo !== '') {
             const animalRef = doc(collection(db, 'animais'));
             batch.set(animalRef, {
               loteId: String(row.loteId || '').toUpperCase(),
@@ -99,23 +92,15 @@ export default function LotesDetalhePage() {
               createdAt: new Date().toISOString()
             });
             countImportados++;
-          } else if (existe) {
-            countDuplicados++;
           }
         });
 
         if (countImportados > 0) {
           await batch.commit();
           setImportHistory(prev => [...prev, file.name]);
-          alert(`Importação concluída!\nNovos: ${countImportados}\nDuplicados: ${countDuplicados}`);
-        } else {
-          alert(`Aviso: Todos os ${countDuplicados} animais já existem.`);
+          alert(`Importação concluída: ${countImportados} animais.`);
         }
-      } catch (err) {
-        console.error(err);
-        alert("Erro ao ler o ficheiro Excel.");
-      }
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      } catch (err) { alert("Erro ao ler o ficheiro."); }
     };
     reader.readAsBinaryString(file);
   };
@@ -161,8 +146,12 @@ export default function LotesDetalhePage() {
     docPDF.save("Relatorio_Animais.pdf");
   };
 
-  const bovinos = animais.filter(a => a.loteId?.includes('-B'));
-  const suinos = animais.filter(a => a.loteId?.includes('-S'));
+  // CÁLCULOS
+  const bovinos = animais.filter(a => a.loteId?.toUpperCase().includes('-B'));
+  const suinos = animais.filter(a => a.loteId?.toUpperCase().includes('-S'));
+  const lotesUnicosBovinos = new Set(bovinos.map(a => a.loteId)).size;
+  const lotesUnicosSuinos = new Set(suinos.map(a => a.loteId)).size;
+
   const calcularMedia = (lista: Animal[]) => 
     lista.length > 0 ? (lista.reduce((acc, a) => acc + (a.pesoAtual || 0), 0) / lista.length).toFixed(1) : "0.0";
 
@@ -199,6 +188,7 @@ export default function LotesDetalhePage() {
         </div>
       </header>
 
+      {/* FORMULÁRIO */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-lg">
         <form onSubmit={handleSubmit} className="grid grid-cols-2 md:flex md:flex-nowrap gap-3 items-end">
           <div className="space-y-1 flex-1">
@@ -227,6 +217,7 @@ export default function LotesDetalhePage() {
         </form>
       </div>
 
+      {/* TABELA */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="overflow-y-auto flex-1 custom-scrollbar overflow-x-auto"> 
           <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1000px]">
@@ -274,35 +265,54 @@ export default function LotesDetalhePage() {
           </table>
         </div>
 
-        <div className="p-4 bg-[#0d0f14] border-t border-slate-800/50 flex flex-col md:flex-row gap-6 px-6 items-center shrink-0">
-          <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
+        {/* RODAPÉ COM TEXTO AUMENTADO */}
+        <div className="p-6 bg-[#0d0f14] border-t border-slate-800/50 flex flex-col md:flex-row gap-8 px-8 items-center shrink-0">
+          
+          {/* TOTAL GERAL */}
+          <div className="flex items-center gap-5 pr-8 border-r border-slate-800/30">
+            <div className="bg-cyan-500/10 p-3 rounded-xl text-cyan-500">
+               <Users size={24} />
+            </div>
             <div className="flex flex-col">
-              <span className="text-[10px] font-black text-white uppercase tracking-widest">EFETIVO TOTAL</span>
-              <span className="text-sm font-black text-cyan-500">{animais.length} UNID.</span>
+              <span className="text-xs font-black text-slate-500 uppercase tracking-widest">EFETIVO TOTAL</span>
+              <span className="text-2xl font-black text-white">{animais.length} <span className="text-xs text-slate-400">CAB.</span></span>
             </div>
           </div>
           
+          {/* BOVINOS */}
           <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
             <div className="flex flex-col">
-              <div className="flex items-center gap-1 text-emerald-500">
-                <Scale size={10} /><span className="text-[8px] font-black uppercase">Média Bovinos</span>
+              <div className="flex items-center gap-2 text-emerald-500 mb-1">
+                <Scale size={14} /><span className="text-xs font-black uppercase">BOVINOS</span>
               </div>
-              <span className="text-sm font-black text-white">{calcularMedia(bovinos)} KG</span>
-              <span className="text-[7px] text-slate-500 font-bold uppercase">{bovinos.length} Cab.</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-xl font-black text-white">{calcularMedia(bovinos)} <span className="text-xs text-slate-500">KG (MÉDIA)</span></span>
+              </div>
+              <div className="flex gap-4 mt-1">
+                <span className="text-xs text-slate-400 font-bold uppercase">{bovinos.length} CAB.</span>
+                <span className="text-xs text-emerald-500 font-black uppercase flex items-center gap-1"><Layers size={12}/> {lotesUnicosBovinos} LOTES</span>
+              </div>
             </div>
           </div>
 
+          {/* SUÍNOS */}
           <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
             <div className="flex flex-col">
-              <div className="flex items-center gap-1 text-cyan-500">
-                <Scale size={10} /><span className="text-[8px] font-black uppercase">Média Suínos</span>
+              <div className="flex items-center gap-2 text-pink-500 mb-1">
+                <Scale size={14} /><span className="text-xs font-black uppercase">SUÍNOS</span>
               </div>
-              <span className="text-sm font-black text-white">{calcularMedia(suinos)} KG</span>
-              <span className="text-[7px] text-slate-500 font-bold uppercase">{suinos.length} Cab.</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-xl font-black text-white">{calcularMedia(suinos)} <span className="text-xs text-slate-500">KG (MÉDIA)</span></span>
+              </div>
+              <div className="flex gap-4 mt-1">
+                <span className="text-xs text-slate-400 font-bold uppercase">{suinos.length} CAB.</span>
+                <span className="text-xs text-pink-500 font-black uppercase flex items-center gap-1"><Layers size={12}/> {lotesUnicosSuinos} LOTES</span>
+              </div>
             </div>
           </div>
 
-          <div className="shrink-0">
+          {/* BOTÃO ELIMINAR SELECIONADOS */}
+          <div className="shrink-0 min-w-[180px] flex justify-end">
             {selectedIds.length > 0 && (
               <button 
                 onClick={async () => {
@@ -312,9 +322,9 @@ export default function LotesDetalhePage() {
                   await batch.commit();
                   setSelectedIds([]);
                 }} 
-                className="bg-red-600/20 border border-red-500/50 text-red-500 text-[9px] font-black px-4 py-2 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                className="bg-red-600/20 border border-red-500/50 text-red-500 text-xs font-black px-5 py-3 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-lg active:scale-95"
               >
-                ELIMINAR SELECIONADOS ({selectedIds.length})
+                ELIMINAR ({selectedIds.length})
               </button>
             )}
           </div>

@@ -7,7 +7,7 @@ import {
 import { 
   Utensils, FileSpreadsheet, FileText, UploadCloud, Check, 
   Trash2, Edit3, Plus, Square, CheckSquare, RotateCcw,
-  Calculator, TrendingUp, DollarSign
+  TrendingUp, Scale
 } from 'lucide-react';
 
 import * as XLSX from 'xlsx';
@@ -42,11 +42,6 @@ export default function AlimentacaoPage() {
 
   const [formData, setFormData] = useState(initialForm);
 
-  // Cálculos de Resumo
-  const totalKg = registos.reduce((acc, r) => acc + (Number(r.quantidadeKg) || 0), 0);
-  const totalInvestido = registos.reduce((acc, r) => acc + (Number(r.quantidadeKg) * Number(r.custoUnitario) || 0), 0);
-  const precoMedioKg = totalKg > 0 ? totalInvestido / totalKg : 0;
-
   useEffect(() => {
     const q = query(collection(db, 'alimentacao'), orderBy('data', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -58,6 +53,19 @@ export default function AlimentacaoPage() {
     });
     return () => unsubscribe();
   }, []);
+
+  const registosBovinos = registos.filter(r => r.loteId.toUpperCase().includes('-B'));
+  const registosSuinos = registos.filter(r => r.loteId.toUpperCase().includes('-S'));
+
+  const calcularStats = (lista: RegistoAlimentacao[]) => {
+    const kg = lista.reduce((acc, r) => acc + (Number(r.quantidadeKg) || 0), 0);
+    const custo = lista.reduce((acc, r) => acc + (Number(r.quantidadeKg) * Number(r.custoUnitario) || 0), 0);
+    return { kg, custo };
+  };
+
+  const statsBovinos = calcularStats(registosBovinos);
+  const statsSuinos = calcularStats(registosSuinos);
+  const totalInvestidoGlobal = registos.reduce((acc, r) => acc + (Number(r.quantidadeKg) * Number(r.custoUnitario) || 0), 0);
 
   const toggleSelectAll = () => {
     if (selectedIds.length === registos.length && registos.length > 0) {
@@ -122,14 +130,12 @@ export default function AlimentacaoPage() {
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(dataMain);
-    
-    // Adicionar Rodapé de Resumo no Excel
     XLSX.utils.sheet_add_aoa(worksheet, [
       [],
       ["RESUMO GERAL"],
-      ["Total Consumido (Kg)", totalKg.toFixed(1)],
-      ["Preço Médio / Kg (Kz)", precoMedioKg.toFixed(0)],
-      ["Investimento Total (Kz)", totalInvestido.toFixed(0)]
+      ["Investimento Bovinos (Kz)", statsBovinos.custo],
+      ["Investimento Suínos (Kz)", statsSuinos.custo],
+      ["Investimento Total (Kz)", totalInvestidoGlobal]
     ], { origin: -1 });
 
     const wb = XLSX.utils.book_new();
@@ -154,22 +160,24 @@ export default function AlimentacaoPage() {
       ]),
       startY: 20, 
       theme: 'grid',
-      headStyles: { fillColor: [8, 145, 178] } // Cyan-600
+      headStyles: { fillColor: [8, 145, 178] }
     });
 
-    // Tabela de Resumo no PDF
     const finalY = (docPDF as any).lastAutoTable.finalY + 10;
     autoTable(docPDF, {
       startY: finalY,
-      head: [["RESUMO DE INVESTIMENTO", "VALOR"]],
+      head: [["RESUMO POR ESPÉCIE", "CONSUMO (KG)", "INVESTIMENTO (KZ)"]],
       body: [
-        ["TOTAL CONSUMIDO", `${totalKg.toLocaleString()} Kg`],
-        ["PREÇO MÉDIO POR KG", `${precoMedioKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} Kz`],
-        ["INVESTIMENTO TOTAL", `${totalInvestido.toLocaleString()} Kz`]
+        ["BOVINOS", `${statsBovinos.kg.toLocaleString()} Kg`, `${statsBovinos.custo.toLocaleString()} Kz`],
+        ["SUÍNOS", `${statsSuinos.kg.toLocaleString()} Kg`, `${statsSuinos.custo.toLocaleString()} Kz`],
+        [
+          "TOTAL GLOBAL", 
+          `${(statsBovinos.kg + statsSuinos.kg).toLocaleString()} Kg`, 
+          `${totalInvestidoGlobal.toLocaleString()} Kz`
+        ]
       ],
       theme: 'striped',
-      headStyles: { fillColor: [31, 41, 55] },
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+      headStyles: { fillColor: [31, 41, 55] }
     });
 
     docPDF.save("Relatorio_Alimentacao.pdf");
@@ -197,9 +205,10 @@ export default function AlimentacaoPage() {
   return (
     <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
       <header className="flex justify-between items-center shrink-0">
-        <h1 className="text-2xl font-black text-white flex items-center gap-3 tracking-tighter uppercase">
-          <Utensils className="text-cyan-500" size={32} /> Alimentação
-        </h1>
+        <div className="flex items-center gap-3">
+            <Utensils className="text-cyan-500" size={32} />
+            <h1 className="text-2xl font-black text-white tracking-tighter uppercase">Alimentação</h1>
+        </div>
         <div className="flex gap-2">
           {selectedIds.length > 0 && (
             <button onClick={deleteSelected} className="bg-red-600/20 border border-red-500/50 px-4 py-2 rounded-lg text-[10px] font-black text-red-500 flex items-center gap-2">
@@ -207,40 +216,39 @@ export default function AlimentacaoPage() {
             </button>
           )}
           <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase">
+          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase transition-colors hover:bg-slate-800">
             <UploadCloud size={14} className="text-cyan-500" /> Importar
           </button>
-          <button onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase">
+          <button onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase transition-colors hover:bg-slate-800">
             <FileSpreadsheet size={14} className="text-emerald-500" /> Excel
           </button>
-          <button onClick={exportToPDF} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase">
+          <button onClick={exportToPDF} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black text-slate-300 flex items-center gap-2 uppercase transition-colors hover:bg-slate-800">
             <FileText size={14} className="text-red-500" /> PDF
           </button>
         </div>
       </header>
 
-      {/* Formulário */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-xl">
         <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-black text-slate-500 uppercase">Lote ID</label>
-            <input required className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-cyan-500 font-bold outline-none text-xs uppercase" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
+            <input required className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-cyan-500 font-bold outline-none text-xs uppercase focus:border-cyan-500" value={formData.loteId} onChange={e => setFormData({...formData, loteId: e.target.value})} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-black text-slate-500 uppercase">Data</label>
-            <input type="date" className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
+            <input type="date" className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs focus:border-cyan-500" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-black text-slate-500 uppercase">Qtd (Kg)</label>
-            <input type="number" step="0.1" className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs" value={formData.quantidadeKg} onChange={e => setFormData({...formData, quantidadeKg: e.target.value})} />
+            <input type="number" step="0.1" className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs focus:border-cyan-500" value={formData.quantidadeKg} onChange={e => setFormData({...formData, quantidadeKg: e.target.value})} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-black text-slate-500 uppercase">Preço/Kg</label>
-            <input type="number" className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs" value={formData.custoUnitario} onChange={e => setFormData({...formData, custoUnitario: e.target.value})} />
+            <input type="number" className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs focus:border-cyan-500" value={formData.custoUnitario} onChange={e => setFormData({...formData, custoUnitario: e.target.value})} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-black text-slate-500 uppercase">Observações</label>
-            <input className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs uppercase" value={formData.observacoes} onChange={e => setFormData({...formData, observacoes: e.target.value})} />
+            <input className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs uppercase focus:border-cyan-500" value={formData.observacoes} onChange={e => setFormData({...formData, observacoes: e.target.value})} />
           </div>
           <div className="flex gap-2">
             <button type="submit" className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-3 rounded-xl uppercase flex items-center justify-center gap-2 transition-all">
@@ -255,7 +263,6 @@ export default function AlimentacaoPage() {
         </form>
       </div>
 
-      {/* Tabela */}
       <div className="bg-[#161922] rounded-2xl border border-slate-800/50 shadow-2xl flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="overflow-auto flex-1 custom-scrollbar"> 
           <table className="w-full text-left text-[11px] border-separate border-spacing-0 min-w-[1000px]">
@@ -277,7 +284,7 @@ export default function AlimentacaoPage() {
               {registos.map((r) => {
                 const isSelected = selectedIds.includes(r.id);
                 return (
-                  <tr key={r.id} className={`${isSelected ? 'bg-cyan-500/5' : ''} hover:bg-white/[0.02]`}>
+                  <tr key={r.id} className={`${isSelected ? 'bg-cyan-500/5' : ''} hover:bg-white/[0.02] transition-colors`}>
                     <td className="p-4 text-center">
                       <button onClick={() => toggleSelectOne(r.id)} className={isSelected ? 'text-cyan-500' : 'text-slate-700'}>
                         {isSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
@@ -302,27 +309,54 @@ export default function AlimentacaoPage() {
           </table>
         </div>
 
-        {/* BARRA DE RESUMO (INTERFACE) */}
-        <div className="bg-[#11141d] border-t border-slate-800 p-4 shrink-0 grid grid-cols-3 gap-4">
-          <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50">
-            <div className="p-2 bg-cyan-500/10 rounded-lg text-cyan-500"><TrendingUp size={20}/></div>
+        <div className="bg-[#11141d] border-t border-slate-800 p-6 shrink-0 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="flex items-center gap-5 bg-[#161922] p-4 rounded-2xl border border-slate-800/50 shadow-lg">
+            <div className="p-3 bg-cyan-500/10 rounded-xl text-cyan-500">
+              <TrendingUp size={24}/>
+            </div>
             <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Consumido</p>
-              <p className="text-xl font-black text-white">{totalKg.toLocaleString(undefined, { minimumFractionDigits: 1 })} <span className="text-xs text-slate-500 font-medium">KG</span></p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Investimento Global</p>
+              <p className="text-2xl font-black text-white">
+                {totalInvestidoGlobal.toLocaleString()} <span className="text-xs text-slate-500 font-medium">KZ</span>
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50">
-            <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500"><Calculator size={20}/></div>
-            <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Preço Médio / Kg</p>
-              <p className="text-xl font-black text-white">{precoMedioKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span className="text-xs text-slate-500 font-medium">KZ</span></p>
+
+          <div className="flex items-center gap-5 bg-[#161922] p-4 rounded-2xl border border-emerald-500/20 shadow-lg">
+            <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500">
+              <Scale size={24}/>
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"/> Bovinos
+              </p>
+              <div className="flex flex-col">
+                <span className="text-xl font-black text-white">
+                  {statsBovinos.kg.toLocaleString(undefined, { minimumFractionDigits: 1 })} <span className="text-xs text-slate-500 font-medium">KG</span>
+                </span>
+                <span className="text-sm font-bold text-emerald-500/80">
+                  {statsBovinos.custo.toLocaleString()} <span className="text-[10px]">KZ</span>
+                </span>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50">
-            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500"><DollarSign size={20}/></div>
-            <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Investimento Total</p>
-              <p className="text-xl font-black text-emerald-500">{totalInvestido.toLocaleString()} <span className="text-xs text-slate-500 font-medium">KZ</span></p>
+
+          <div className="flex items-center gap-5 bg-[#161922] p-4 rounded-2xl border border-pink-500/20 shadow-lg">
+            <div className="p-3 bg-pink-500/10 rounded-xl text-pink-500">
+              <Scale size={24}/>
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-pink-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-pink-500 rounded-full animate-pulse"/> Suínos
+              </p>
+              <div className="flex flex-col">
+                <span className="text-xl font-black text-white">
+                  {statsSuinos.kg.toLocaleString(undefined, { minimumFractionDigits: 1 })} <span className="text-xs text-slate-500 font-medium">KG</span>
+                </span>
+                <span className="text-sm font-bold text-pink-500/80">
+                  {statsSuinos.custo.toLocaleString()} <span className="text-[10px]">KZ</span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
