@@ -7,8 +7,8 @@ import {
 import { 
   Activity, FileSpreadsheet, FileText, UploadCloud, 
   Check, Trash2, Edit3, Plus, Square, CheckSquare, 
-  RotateCcw, ShieldAlert, Pill, DollarSign, Syringe, User
-} from 'lucide-react';
+  RotateCcw, Pill, User, HeartPulse
+} from 'lucide-react'; // ShieldAlert, DollarSign e Syringe removidos daqui
 
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -49,12 +49,6 @@ export default function SaudePage() {
 
   const [formData, setFormData] = useState(initialForm);
 
-  // Cálculos de Resumo
-  const totalGasto = registos.reduce((acc, r) => acc + (Number(r.custoMedicamento) || 0), 0);
-  const mediaCarencia = registos.length > 0 
-    ? registos.reduce((acc, r) => acc + (Number(r.periodoCarenciaDias) || 0), 0) / registos.length 
-    : 0;
-
   useEffect(() => {
     const q = query(collection(db, 'saude'), orderBy('data', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -67,6 +61,23 @@ export default function SaudePage() {
     return () => unsubscribe();
   }, []);
 
+  // Lógica de Cálculos por Espécie
+  const registosBovinos = registos.filter(r => r.loteId.toUpperCase().includes('-B'));
+  const registosSuinos = registos.filter(r => r.loteId.toUpperCase().includes('-S'));
+
+  const calcularStatsSaude = (lista: RegistoSaude[]) => {
+    const totalProcedimentos = lista.length;
+    const custoTotal = lista.reduce((acc, r) => acc + (Number(r.custoMedicamento) || 0), 0);
+    const carenciaMedia = totalProcedimentos > 0 
+      ? lista.reduce((acc, r) => acc + (Number(r.periodoCarenciaDias) || 0), 0) / totalProcedimentos 
+      : 0;
+    return { totalProcedimentos, custoTotal, carenciaMedia };
+  };
+
+  const statsBovinos = calcularStatsSaude(registosBovinos);
+  const statsSuinos = calcularStatsSaude(registosSuinos);
+  const totalGastoGlobal = registos.reduce((acc, r) => acc + (Number(r.custoMedicamento) || 0), 0);
+
   const handleImportExcel = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -78,7 +89,6 @@ export default function SaudePage() {
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rawData: any[] = XLSX.utils.sheet_to_json(ws);
-        
         const batch = writeBatch(db);
 
         rawData.forEach((item) => {
@@ -90,13 +100,7 @@ export default function SaudePage() {
 
           let dataFormatada = new Date().toISOString().split('T')[0];
           const rawDate = cleanItem.data;
-          
-          if (rawDate instanceof Date) {
-            dataFormatada = rawDate.toISOString().split('T')[0];
-          } else if (typeof rawDate === 'string' && rawDate.includes('/')) {
-            const parts = rawDate.split('/');
-            if (parts.length === 3) dataFormatada = `${parts[2]}-${parts[1]}-${parts[0]}`;
-          }
+          if (rawDate instanceof Date) dataFormatada = rawDate.toISOString().split('T')[0];
 
           const newDocRef = doc(collection(db, 'saude'));
           batch.set(newDocRef, {
@@ -116,43 +120,27 @@ export default function SaudePage() {
 
         await batch.commit();
         alert("Importação Concluída!");
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      } catch (err) { 
-        console.error(err);
-        alert("Erro ao processar o arquivo.");
-      }
+      } catch (err) { console.error(err); }
     };
     reader.readAsBinaryString(file);
   };
 
   const exportToExcel = () => {
     const dataMain = registos.map(({ id, ...r }) => ({
-      'Lote': r.loteId,
-      'Brinco': r.brinco,
-      'Data': r.data,
-      'Tipo': r.tipo,
-      'Medicamento': r.medicamento,
-      'Dosagem': r.dosagem,
-      'Via': r.viaAplicacao,
-      'Carência (Dias)': r.periodoCarenciaDias,
-      'Custo (Kz)': r.custoMedicamento,
-      'Veterinário': r.veterinarioResponsavel
+      'Lote': r.loteId, 'Brinco': r.brinco, 'Data': r.data, 'Tipo': r.tipo,
+      'Medicamento': r.medicamento, 'Dosagem': r.dosagem, 'Via': r.viaAplicacao,
+      'Carência': r.periodoCarenciaDias, 'Custo (Kz)': r.custoMedicamento, 'Vet': r.veterinarioResponsavel
     }));
-
     const worksheet = XLSX.utils.json_to_sheet(dataMain);
-
-    // Adiciona Rodapé de Resumo no Excel
     XLSX.utils.sheet_add_aoa(worksheet, [
-      [],
-      ["RESUMO GERAL DE SAÚDE"],
-      ["Total de Procedimentos", registos.length],
-      ["Média de Carência (Dias)", mediaCarencia.toFixed(1)],
-      ["Investimento Total (Kz)", totalGasto.toFixed(0)]
+      [], ["RESUMO POR ESPÉCIE"],
+      ["Investimento Bovinos (Kz)", statsBovinos.custoTotal],
+      ["Investimento Suínos (Kz)", statsSuinos.custoTotal],
+      ["Investimento Total (Kz)", totalGastoGlobal]
     ], { origin: -1 });
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, worksheet, "Saude");
-    XLSX.writeFile(wb, "Relatorio_Saude_Fazenda_Kwanza.xlsx");
+    XLSX.writeFile(wb, "Saude_Fazenda_Kwanza.xlsx");
   };
 
   const exportToPDF = () => {
@@ -161,36 +149,25 @@ export default function SaudePage() {
     docPDF.text("REGISTO DE SAÚDE - FAZENDA KWANZA", 14, 15);
     
     autoTable(docPDF, {
-      head: [["LOTE", "BRINCO", "DATA", "MEDICAMENTO", "DOSAGEM", "VIA", "CARÊNCIA", "CUSTO"]],
+      head: [["LOTE", "BRINCO", "DATA", "MEDICAMENTO", "TIPO", "CARÊNCIA", "CUSTO"]],
       body: registos.map(r => [
-        r.loteId, 
-        r.brinco, 
-        r.data.split('-').reverse().join('/'), 
-        r.medicamento, 
-        r.dosagem, 
-        r.viaAplicacao, 
-        `${r.periodoCarenciaDias}D`, 
-        `${r.custoMedicamento.toLocaleString()} KZ`
+        r.loteId, r.brinco, r.data.split('-').reverse().join('/'), 
+        r.medicamento, r.tipo, `${r.periodoCarenciaDias}D`, `${r.custoMedicamento.toLocaleString()} KZ`
       ]),
-      startY: 20,
-      theme: 'grid',
-      headStyles: { fillColor: [220, 38, 38] }
+      startY: 20, theme: 'grid', headStyles: { fillColor: [220, 38, 38] }
     });
 
     const finalY = (docPDF as any).lastAutoTable.finalY + 10;
     autoTable(docPDF, {
       startY: finalY,
-      head: [["RESUMO GERAL", "VALOR"]],
+      head: [["ESPÉCIE", "PROCEDIMENTOS", "CARÊNCIA MÉDIA", "INVESTIMENTO"]],
       body: [
-        ["TOTAL DE PROCEDIMENTOS", registos.length],
-        ["MÉDIA PERÍODO CARÊNCIA", `${mediaCarencia.toFixed(1)} DIAS`],
-        ["INVESTIMENTO TOTAL", `${totalGasto.toLocaleString()} KZ`]
+        ["BOVINOS", statsBovinos.totalProcedimentos, `${statsBovinos.carenciaMedia.toFixed(1)} Dias`, `${statsBovinos.custoTotal.toLocaleString()} KZ`],
+        ["SUÍNOS", statsSuinos.totalProcedimentos, `${statsSuinos.carenciaMedia.toFixed(1)} Dias`, `${statsSuinos.custoTotal.toLocaleString()} KZ`],
+        ["TOTAL GLOBAL", registos.length, "-", `${totalGastoGlobal.toLocaleString()} KZ`]
       ],
-      theme: 'striped',
-      headStyles: { fillColor: [31, 41, 55] },
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+      theme: 'striped', headStyles: { fillColor: [31, 41, 55] }
     });
-
     docPDF.save("Relatorio_Saude_Kwanza.pdf");
   };
 
@@ -203,12 +180,9 @@ export default function SaudePage() {
       periodoCarenciaDias: Number(formData.periodoCarenciaDias),
       custoMedicamento: Number(formData.custoMedicamento),
     };
-
     if (editingId) await updateDoc(doc(db, 'saude', editingId), payload);
     else await addDoc(collection(db, 'saude'), { ...payload, createdAt: new Date().toISOString() });
-    
-    setEditingId(null);
-    setFormData(initialForm);
+    setEditingId(null); setFormData(initialForm);
   };
 
   return (
@@ -353,19 +327,56 @@ export default function SaudePage() {
           </table>
         </div>
 
-        {/* RESUMO INTERFACE */}
-        <div className="bg-[#11141d] border-t border-slate-800 p-4 shrink-0 grid grid-cols-3 gap-4">
-          <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50 shadow-inner">
-            <div className="p-2 bg-red-500/10 rounded-lg text-red-500"><Syringe size={20}/></div>
-            <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Procedimentos</p><p className="text-xl font-black text-white">{registos.length}</p></div>
+        {/* RODAPÉ SEGMENTADO POR ESPÉCIE */}
+        <div className="bg-[#11141d] border-t border-slate-800 p-6 shrink-0 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="flex items-center gap-5 bg-[#161922] p-4 rounded-2xl border border-slate-800/50 shadow-lg">
+            <div className="p-3 bg-red-500/10 rounded-xl text-red-500">
+              <Activity size={24}/>
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Investimento Global</p>
+              <p className="text-2xl font-black text-white">
+                {totalGastoGlobal.toLocaleString()} <span className="text-xs text-slate-500 font-medium">KZ</span>
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50 shadow-inner">
-            <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500"><ShieldAlert size={20}/></div>
-            <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Média Carência</p><p className="text-xl font-black text-white">{mediaCarencia.toFixed(1)} <span className="text-xs text-slate-500 font-medium">DIAS</span></p></div>
+
+          <div className="flex items-center gap-5 bg-[#161922] p-4 rounded-2xl border border-emerald-500/20 shadow-lg">
+            <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500">
+              <HeartPulse size={24}/>
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"/> Bovinos
+              </p>
+              <div className="flex flex-col">
+                <span className="text-xl font-black text-white">
+                  {statsBovinos.totalProcedimentos} <span className="text-xs text-slate-500 font-medium uppercase tracking-tight">Procds</span>
+                </span>
+                <span className="text-sm font-bold text-emerald-500/80">
+                  {statsBovinos.custoTotal.toLocaleString()} <span className="text-[10px]">KZ</span>
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50 shadow-inner">
-            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500"><DollarSign size={20}/></div>
-            <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Investimento</p><p className="text-xl font-black text-emerald-500">{totalGasto.toLocaleString()} <span className="text-xs text-slate-500 font-medium">KZ</span></p></div>
+
+          <div className="flex items-center gap-5 bg-[#161922] p-4 rounded-2xl border border-pink-500/20 shadow-lg">
+            <div className="p-3 bg-pink-500/10 rounded-xl text-pink-500">
+              <HeartPulse size={24}/>
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-pink-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-pink-500 rounded-full animate-pulse"/> Suínos
+              </p>
+              <div className="flex flex-col">
+                <span className="text-xl font-black text-white">
+                  {statsSuinos.totalProcedimentos} <span className="text-xs text-slate-500 font-medium uppercase tracking-tight">Procds</span>
+                </span>
+                <span className="text-sm font-bold text-pink-500/80">
+                  {statsSuinos.custoTotal.toLocaleString()} <span className="text-[10px]">KZ</span>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

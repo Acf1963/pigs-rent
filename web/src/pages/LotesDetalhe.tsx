@@ -52,6 +52,15 @@ export default function LotesDetalhePage() {
     return () => unsubAnimais();
   }, []);
 
+  // CÁLCULOS PARA RODAPÉ E RELATÓRIOS
+  const bovinos = animais.filter(a => a.loteId?.toUpperCase().includes('-B'));
+  const suinos = animais.filter(a => a.loteId?.toUpperCase().includes('-S'));
+  const lotesUnicosBovinos = new Set(bovinos.map(a => a.loteId)).size;
+  const lotesUnicosSuinos = new Set(suinos.map(a => a.loteId)).size;
+
+  const calcularMedia = (lista: Animal[]) => 
+    lista.length > 0 ? (lista.reduce((acc, a) => acc + (a.pesoAtual || 0), 0) / lista.length).toFixed(1) : "0.0";
+
   const formatExcelDate = (value: any) => {
     if (!value) return '';
     if (typeof value === 'number') {
@@ -59,6 +68,58 @@ export default function LotesDetalhePage() {
       return date.toISOString().split('T')[0];
     }
     return String(value);
+  };
+
+  // EXPORTAÇÕES
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(animais.map(a => ({
+      Lote: a.loteId, Brinco: a.brinco, Raça: a.raca, 
+      Sexo: a.sexo, 'Peso (Kg)': a.pesoAtual, Nascimento: a.dataNascimento
+    })));
+
+    // Adiciona Resumo ao Excel
+    XLSX.utils.sheet_add_aoa(ws, [
+      [],
+      ["RESUMO DE EFETIVO"],
+      ["ESPÉCIE", "CAB.", "LOTES", "MÉDIA PESO"],
+      ["BOVINOS", bovinos.length, lotesUnicosBovinos, `${calcularMedia(bovinos)} Kg`],
+      ["SUÍNOS", suinos.length, lotesUnicosSuinos, `${calcularMedia(suinos)} Kg`],
+      ["TOTAL GERAL", animais.length]
+    ], { origin: -1 });
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Efetivo");
+    XLSX.writeFile(wb, "Efetivo_Fazenda_Kwanza.xlsx");
+  };
+
+  const exportToPDF = () => {
+    const docPDF = new jsPDF('l', 'mm', 'a4');
+    docPDF.setFontSize(18);
+    docPDF.text("RELATÓRIO DE EFETIVO ATUAL - FAZENDA KWANZA", 14, 15);
+
+    autoTable(docPDF, {
+      head: [["LOTE ID", "BRINCO", "RAÇA", "SEXO", "PESO", "DATA NASC."]],
+      body: animais.map(a => [a.loteId, a.brinco, a.raca, a.sexo, `${a.pesoAtual} Kg`, a.dataNascimento]),
+      startY: 25,
+      headStyles: { fillColor: [6, 182, 212] }
+    });
+
+    const finalY = (docPDF as any).lastAutoTable.finalY + 10;
+    
+    // Tabela de Rodapé no PDF
+    autoTable(docPDF, {
+      startY: finalY,
+      head: [["RESUMO POR ESPÉCIE", "CAB.", "Nº LOTES", "MÉDIA PESO (KG)"]],
+      body: [
+        ["BOVINOS", bovinos.length, lotesUnicosBovinos, calcularMedia(bovinos)],
+        ["SUÍNOS", suinos.length, lotesUnicosSuinos, calcularMedia(suinos)],
+        ["TOTAL ACUMULADO", animais.length, lotesUnicosBovinos + lotesUnicosSuinos, "---"]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [31, 41, 55] }
+    });
+
+    docPDF.save("Efetivo_Fazenda_Kwanza.pdf");
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -125,35 +186,6 @@ export default function LotesDetalhePage() {
     });
     setFormData(initialForm);
   };
-
-  const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(filteredAnimais.map(a => ({
-      Lote: a.loteId, Brinco: a.brinco, Raca: a.raca, 
-      Sexo: a.sexo, Peso: a.pesoAtual, Nascimento: a.dataNascimento
-    })));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Animais");
-    XLSX.writeFile(wb, "Efetivo_Fazenda.xlsx");
-  };
-
-  const exportToPDF = () => {
-    const docPDF = new jsPDF('l', 'mm', 'a4');
-    autoTable(docPDF, {
-      head: [["LOTE ID", "BRINCO", "RAÇA", "SEXO", "PESO", "DATA NASC."]],
-      body: filteredAnimais.map(a => [a.loteId, a.brinco, a.raca, a.sexo, `${a.pesoAtual} Kg`, a.dataNascimento]),
-      headStyles: { fillColor: [6, 182, 212] }
-    });
-    docPDF.save("Relatorio_Animais.pdf");
-  };
-
-  // CÁLCULOS
-  const bovinos = animais.filter(a => a.loteId?.toUpperCase().includes('-B'));
-  const suinos = animais.filter(a => a.loteId?.toUpperCase().includes('-S'));
-  const lotesUnicosBovinos = new Set(bovinos.map(a => a.loteId)).size;
-  const lotesUnicosSuinos = new Set(suinos.map(a => a.loteId)).size;
-
-  const calcularMedia = (lista: Animal[]) => 
-    lista.length > 0 ? (lista.reduce((acc, a) => acc + (a.pesoAtual || 0), 0) / lista.length).toFixed(1) : "0.0";
 
   return (
     <div className="h-[calc(100vh-110px)] flex flex-col space-y-4 overflow-hidden p-2">
@@ -265,10 +297,9 @@ export default function LotesDetalhePage() {
           </table>
         </div>
 
-        {/* RODAPÉ COM TEXTO AUMENTADO */}
+        {/* RODAPÉ */}
         <div className="p-6 bg-[#0d0f14] border-t border-slate-800/50 flex flex-col md:flex-row gap-8 px-8 items-center shrink-0">
           
-          {/* TOTAL GERAL */}
           <div className="flex items-center gap-5 pr-8 border-r border-slate-800/30">
             <div className="bg-cyan-500/10 p-3 rounded-xl text-cyan-500">
                <Users size={24} />
@@ -279,7 +310,6 @@ export default function LotesDetalhePage() {
             </div>
           </div>
           
-          {/* BOVINOS */}
           <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 text-emerald-500 mb-1">
@@ -295,7 +325,6 @@ export default function LotesDetalhePage() {
             </div>
           </div>
 
-          {/* SUÍNOS */}
           <div className="flex-1 flex items-center gap-6 border-r border-slate-800/30">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 text-pink-500 mb-1">
@@ -311,7 +340,6 @@ export default function LotesDetalhePage() {
             </div>
           </div>
 
-          {/* BOTÃO ELIMINAR SELECIONADOS */}
           <div className="shrink-0 min-w-[180px] flex justify-end">
             {selectedIds.length > 0 && (
               <button 

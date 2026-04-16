@@ -269,14 +269,14 @@ export default function VendasPage() {
           <span className="text-[10px] text-cyan-500 font-black uppercase mb-1 tracking-widest">BOVINOS FATURADOS</span>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-white">{resumoB.valor.toLocaleString()} Kz</span>
-            <span className="text-[10px] font-bold text-cyan-500/80 uppercase">{resumoB.total} CAB</span>
+            <span className="text-sm font-black text-cyan-500 uppercase">{resumoB.total} CAB</span>
           </div>
         </div>
         <div className="flex-1 flex flex-col border-l border-gray-800 pl-6">
           <span className="text-[10px] text-pink-500 font-black uppercase mb-1 tracking-widest">SUÍNOS FATURADOS</span>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-white">{resumoS.valor.toLocaleString()} Kz</span>
-            <span className="text-[10px] font-bold text-pink-500/80 uppercase">{resumoS.total} CAB</span>
+            <span className="text-sm font-black text-pink-500 uppercase">{resumoS.total} CAB</span>
           </div>
         </div>
         <div className="shrink-0 flex items-center gap-4 bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-right">
