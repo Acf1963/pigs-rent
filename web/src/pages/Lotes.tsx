@@ -300,11 +300,11 @@ export default function LotesPage() {
 
       {/* RODAPÉ - LEITURA OTIMIZADA */}
       <div className="p-4 bg-[#0c121d] border border-gray-800 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0 shadow-2xl">
-        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-28">
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-32">
           <span className="text-[10px] text-blue-400 font-black uppercase block tracking-widest">BOVINOS EM STOCK</span>
           <div className="flex items-end justify-between">
-            <span className="text-4xl font-black text-white leading-none">{resumo.bovinos.vivos}</span>
-            <div className="text-[10px] text-gray-500 text-right leading-tight font-bold">
+            <span className="text-5xl font-black text-white leading-none">{resumo.bovinos.vivos}</span>
+            <div className="text-sm text-gray-300 text-right leading-snug font-bold">
               <div>{resumo.bovinos.qtd} LOTES</div>
               <div>{resumo.bovinos.abates} ABATES</div>
               <div className="text-blue-400">{resumo.bovinos.carcaca} CARC.</div>
@@ -312,11 +312,11 @@ export default function LotesPage() {
           </div>
         </div>
         
-        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-28">
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-32">
           <span className="text-[10px] text-pink-400 font-black uppercase block tracking-widest">SUÍNOS EM STOCK</span>
           <div className="flex items-end justify-between">
-            <span className="text-4xl font-black text-white leading-none">{resumo.suinos.vivos}</span>
-            <div className="text-[10px] text-gray-500 text-right leading-tight font-bold">
+            <span className="text-5xl font-black text-white leading-none">{resumo.suinos.vivos}</span>
+            <div className="text-sm text-gray-300 text-right leading-snug font-bold">
               <div>{resumo.suinos.qtd} LOTES</div>
               <div>{resumo.suinos.abates} ABATES</div>
               <div className="text-blue-400">{resumo.suinos.carcaca} CARC.</div>
@@ -324,14 +324,14 @@ export default function LotesPage() {
           </div>
         </div>
 
-        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-center h-28">
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-center h-32">
           <span className="text-[10px] text-orange-500 font-black uppercase block tracking-widest mb-1">TOTAL ABATES</span>
-          <span className="text-4xl font-black text-white leading-none">{resumo.totalAbates}</span>
+          <span className="text-5xl font-black text-white leading-none">{resumo.totalAbates}</span>
         </div>
 
-        <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-right flex flex-col justify-center h-28">
+        <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-right flex flex-col justify-center h-32">
           <span className="text-[10px] text-emerald-500 font-black uppercase block tracking-widest mb-1">STOCK VIVO REAL</span>
-          <span className="text-4xl font-black text-emerald-500 leading-none">{resumo.stockGlobal}</span>
+          <span className="text-5xl font-black text-emerald-500 leading-none">{resumo.stockGlobal}</span>
         </div>
       </div>
 
