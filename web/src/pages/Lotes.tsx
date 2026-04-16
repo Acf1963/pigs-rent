@@ -103,66 +103,39 @@ export default function LotesPage() {
   };
 
   const exportToExcel = () => {
-    const dataMain = lotes.map(l => {
-      const loteRef = String(l.codigoLote || '').trim();
-      const nA = abates.filter(a => String(a.loteId || '').trim() === loteRef).length;
-      const nV = vendas.filter(v => String(v.codigoLote || '').trim() === loteRef && v.brinco).length;
-      return {
-        'Lote': l.codigoLote, 'Data': l.dataEntrada, 'Tipo': l.tipo, 
-        'Qtd Inicial': l.quantidade, 'Abates': nA, 
-        'Stock Vivo': Number(l.quantidade) - nA,
-        'Stock Carcaça': nA - nV, 'Fornecedor': l.fornecedor
-      };
-    });
-
+    const dataMain = lotes.map(l => ({
+      'Cód. Lote': l.codigoLote,
+      'Tipo': l.tipo,
+      'Raça': l.raca,
+      'Qtd': l.quantidade,
+      'Fornecedor': l.fornecedor,
+      'Data Entrada': l.dataEntrada,
+      'Peso Médio': l.pesoInicialMedio,
+      'Peso Final Transp.': l.pesoFinalTransporte,
+      'Custo Transp.': l.custoTransporte,
+      'Custo Aquisição': l.custoAquisicao
+    }));
     const worksheet = XLSX.utils.json_to_sheet(dataMain);
-    
-    XLSX.utils.sheet_add_aoa(worksheet, [
-      [],
-      ["RESUMO POR ESPÉCIE", "LOTES", "ABATES", "VIVOS", "CARCAÇA"],
-      ["BOVINOS", resumo.bovinos.qtd, resumo.bovinos.abates, resumo.bovinos.vivos, resumo.bovinos.carcaca],
-      ["SUÍNOS", resumo.suinos.qtd, resumo.suinos.abates, resumo.suinos.vivos, resumo.suinos.carcaca],
-      ["TOTAL GERAL", resumo.totalLotes, resumo.totalAbates, resumo.stockGlobal, resumo.totalCarcacas]
-    ], { origin: -1 });
-
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Lotes");
-    XLSX.writeFile(workbook, "Relatorio_Composicao_Lotes.xlsx");
+    XLSX.writeFile(workbook, "Listagem_Lotes_Completa.xlsx");
   };
 
   const exportToPDF = () => {
     const doc = new jsPDF('l', 'mm', 'a4');
-    doc.setFontSize(14);
-    doc.text("RELATÓRIO DE COMPOSIÇÃO DE LOTES", 14, 15);
-    
-    const bodyData = lotes.map(l => {
-      const loteRef = String(l.codigoLote || '').trim();
-      const nA = abates.filter(a => String(a.loteId || '').trim() === loteRef).length;
-      const nV = vendas.filter(v => String(v.codigoLote || '').trim() === loteRef && v.brinco).length;
-      return [l.codigoLote, l.dataEntrada, l.tipo, l.raca, l.quantidade, nA, Number(l.quantidade) - nA, nA - nV, l.pesoInicialMedio, l.fornecedor];
-    });
-
+    doc.text("LISTAGEM DE LOTES COMPLETA", 14, 15);
+    const bodyData = lotes.map(l => [
+      l.codigoLote, l.tipo, l.raca, l.quantidade, l.fornecedor, 
+      l.dataEntrada, l.pesoInicialMedio, l.pesoFinalTransporte, 
+      l.custoTransporte, l.custoAquisicao
+    ]);
     autoTable(doc, {
-      startY: 25,
-      head: [['Lote', 'Data', 'Tipo', 'Raça', 'Qtd Ini', 'Abates', 'Stock Vivo', 'Stock Carc.', 'P. Médio', 'Fornecedor']],
+      startY: 20,
+      head: [['Lote', 'Tipo', 'Raça', 'Qtd', 'Fornecedor', 'Entrada', 'P.Médio', 'P.Final', 'C.Transp', 'C.Aq.']],
       body: bodyData,
       styles: { fontSize: 7 }
     });
-
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 10,
-      head: [['RESUMO POR ESPÉCIE', 'LOTES', 'ABATES', 'VIVOS', 'CARCAÇA']],
-      body: [
-        ['BOVINOS', resumo.bovinos.qtd, resumo.bovinos.abates, resumo.bovinos.vivos, resumo.bovinos.carcaca],
-        ['SUÍNOS', resumo.suinos.qtd, resumo.suinos.abates, resumo.suinos.vivos, resumo.suinos.carcaca],
-        ['TOTAIS', resumo.totalLotes, resumo.totalAbates, resumo.stockGlobal, resumo.totalCarcacas]
-      ],
-      theme: 'striped',
-      headStyles: { fillColor: [31, 41, 55] },
-      columnStyles: { 0: { fontStyle: 'bold' } }
-    });
-
-    doc.save("Relatorio_Composicao_Lotes.pdf");
+    doc.save("Listagem_Lotes.pdf");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -237,23 +210,26 @@ export default function LotesPage() {
         </form>
       </div>
 
-      {/* TABELA */}
+      {/* TABELA - COM TODAS AS COLUNAS RESTAURADAS */}
       <div className="bg-[#111827]/30 rounded-2xl border border-gray-800 mb-4 flex-1 min-h-0 shadow-2xl overflow-hidden">
         <div className="h-full overflow-auto scrollbar-custom">
-          <table className="min-w-[1800px] w-full text-left text-[11px] border-separate border-spacing-0">
+          <table className="min-w-[2100px] w-full text-left text-[11px] border-separate border-spacing-0">
             <thead className="bg-[#0f1522] text-gray-500 font-black uppercase sticky top-0 z-20">
               <tr>
                 <th className="p-4 border-b border-gray-800 bg-[#0f1522] w-10"><Square size={16}/></th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Lote</th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Data</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Cód. Lote</th>
                 <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Tipo</th>
                 <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Raça</th>
-                <th className="p-4 text-center border-b border-gray-800 bg-[#0f1522]">Qtd Inicial</th>
+                <th className="p-4 text-center border-b border-gray-800 bg-[#0f1522]">Qtd</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Fornecedor</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Data Entrada</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Peso Inicial Médio</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Peso Final Transporte</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Custo Transporte</th>
+                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Custo Aquisição</th>
                 <th className="p-4 text-center text-orange-500 border-b border-gray-800 bg-[#0f1522]">Abates</th>
                 <th className="p-4 text-center text-emerald-500 border-b border-gray-800 bg-[#0f1522]">Stock Vivo</th>
                 <th className="p-4 text-center text-blue-400 border-b border-gray-800 bg-[#0f1522]">Stock Carcaça</th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">P. Médio</th>
-                <th className="p-4 border-b border-gray-800 bg-[#0f1522]">Fornecedor</th>
                 <th className="p-4 text-center border-b border-gray-800 bg-[#0f1522] sticky right-0">Ações</th>
               </tr>
             </thead>
@@ -267,10 +243,15 @@ export default function LotesPage() {
                   <tr key={l.id} className="hover:bg-blue-500/5 group text-gray-300">
                     <td className="p-4 text-center"><Square size={16} className="text-gray-700"/></td>
                     <td className="p-4 font-black text-blue-500 text-sm italic uppercase">{l.codigoLote}</td>
-                    <td className="p-4">{l.dataEntrada?.split('-').reverse().join('/')}</td>
                     <td className="p-4 uppercase font-bold">{l.tipo}</td>
                     <td className="p-4 uppercase font-bold">{l.raca}</td>
                     <td className="p-4 text-center font-bold text-gray-200">{l.quantidade}</td>
+                    <td className="p-4 italic font-bold uppercase">{l.fornecedor}</td>
+                    <td className="p-4">{l.dataEntrada?.split('-').reverse().join('/')}</td>
+                    <td className="p-4 font-mono">{Number(l.pesoInicialMedio || 0).toFixed(2)} Kg</td>
+                    <td className="p-4 font-mono">{Number(l.pesoFinalTransporte || 0).toFixed(2)} Kg</td>
+                    <td className="p-4 font-mono">{Number(l.custoTransporte || 0).toLocaleString()} Kz</td>
+                    <td className="p-4 font-mono text-blue-400 font-bold">{Number(l.custoAquisicao || 0).toLocaleString()} Kz</td>
                     <td className="p-4 text-center text-orange-500 font-black">{nA}</td>
                     <td className="p-4 text-center">
                       <span className={`px-3 py-1 rounded-full border font-bold ${vivo <= 0 ? 'text-red-500 border-red-500/20' : 'text-emerald-500 border-emerald-500/20'}`}>
@@ -282,8 +263,6 @@ export default function LotesPage() {
                         {carc} UN
                       </span>
                     </td>
-                    <td className="p-4">{l.pesoInicialMedio} kg</td>
-                    <td className="p-4 italic font-bold uppercase">{l.fornecedor}</td>
                     <td className="p-4 text-center sticky right-0 bg-[#0a0f18] group-hover:bg-[#161d2b]">
                       <div className="flex justify-center gap-3">
                         <button onClick={() => { setEditingId(l.id); setFormData({...l}); }} className="text-gray-500 hover:text-white"><Edit3 size={18}/></button>
@@ -298,13 +277,13 @@ export default function LotesPage() {
         </div>
       </div>
 
-      {/* RODAPÉ - LEITURA OTIMIZADA */}
+      {/* RODAPÉ */}
       <div className="p-4 bg-[#0c121d] border border-gray-800 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0 shadow-2xl">
-        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-32">
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-28">
           <span className="text-[10px] text-blue-400 font-black uppercase block tracking-widest">BOVINOS EM STOCK</span>
           <div className="flex items-end justify-between">
-            <span className="text-5xl font-black text-white leading-none">{resumo.bovinos.vivos}</span>
-            <div className="text-sm text-gray-300 text-right leading-snug font-bold">
+            <span className="text-4xl font-black text-white leading-none">{resumo.bovinos.vivos}</span>
+            <div className="text-[10px] text-gray-500 text-right leading-tight font-bold">
               <div>{resumo.bovinos.qtd} LOTES</div>
               <div>{resumo.bovinos.abates} ABATES</div>
               <div className="text-blue-400">{resumo.bovinos.carcaca} CARC.</div>
@@ -312,11 +291,11 @@ export default function LotesPage() {
           </div>
         </div>
         
-        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-32">
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-between h-28">
           <span className="text-[10px] text-pink-400 font-black uppercase block tracking-widest">SUÍNOS EM STOCK</span>
           <div className="flex items-end justify-between">
-            <span className="text-5xl font-black text-white leading-none">{resumo.suinos.vivos}</span>
-            <div className="text-sm text-gray-300 text-right leading-snug font-bold">
+            <span className="text-4xl font-black text-white leading-none">{resumo.suinos.vivos}</span>
+            <div className="text-[10px] text-gray-500 text-right leading-tight font-bold">
               <div>{resumo.suinos.qtd} LOTES</div>
               <div>{resumo.suinos.abates} ABATES</div>
               <div className="text-blue-400">{resumo.suinos.carcaca} CARC.</div>
@@ -324,14 +303,14 @@ export default function LotesPage() {
           </div>
         </div>
 
-        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-center h-32">
+        <div className="bg-[#1a2233]/50 p-4 rounded-xl border border-gray-800 flex flex-col justify-center h-28">
           <span className="text-[10px] text-orange-500 font-black uppercase block tracking-widest mb-1">TOTAL ABATES</span>
-          <span className="text-5xl font-black text-white leading-none">{resumo.totalAbates}</span>
+          <span className="text-4xl font-black text-white leading-none">{resumo.totalAbates}</span>
         </div>
 
-        <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-right flex flex-col justify-center h-32">
+        <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-right flex flex-col justify-center h-28">
           <span className="text-[10px] text-emerald-500 font-black uppercase block tracking-widest mb-1">STOCK VIVO REAL</span>
-          <span className="text-5xl font-black text-emerald-500 leading-none">{resumo.stockGlobal}</span>
+          <span className="text-4xl font-black text-emerald-500 leading-none">{resumo.stockGlobal}</span>
         </div>
       </div>
 
