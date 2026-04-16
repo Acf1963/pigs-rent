@@ -111,28 +111,67 @@ export default function AlimentacaoPage() {
   };
 
   const exportToExcel = () => {
+    const dataMain = registos.map(r => ({
+      'Lote': r.loteId, 
+      'Data': r.data, 
+      'Alimento': r.tipoAlimento,
+      'Quantidade (Kg)': r.quantidadeKg, 
+      'Preço/Kg (Kz)': r.custoUnitario,
+      'Total (Kz)': (r.quantidadeKg * r.custoUnitario), 
+      'Obs': r.observacoes
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataMain);
+    
+    // Adicionar Rodapé de Resumo no Excel
+    XLSX.utils.sheet_add_aoa(worksheet, [
+      [],
+      ["RESUMO GERAL"],
+      ["Total Consumido (Kg)", totalKg.toFixed(1)],
+      ["Preço Médio / Kg (Kz)", precoMedioKg.toFixed(0)],
+      ["Investimento Total (Kz)", totalInvestido.toFixed(0)]
+    ], { origin: -1 });
+
     const wb = XLSX.utils.book_new();
-    const ws1 = XLSX.utils.json_to_sheet(registos.map(r => ({
-      'Lote': r.loteId, 'Data': r.data, 'Alimento': r.tipoAlimento,
-      'Quantidade (Kg)': r.quantidadeKg, 'Preço/Kg (Kz)': r.custoUnitario,
-      'Total (Kz)': (r.quantidadeKg * r.custoUnitario), 'Obs': r.observacoes
-    })));
-    XLSX.utils.book_append_sheet(wb, ws1, "Registos_Consumo");
+    XLSX.utils.book_append_sheet(wb, worksheet, "Registos_Consumo");
     XLSX.writeFile(wb, "Fazenda_Kwanza_Alimentacao.xlsx");
   };
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
+    docPDF.setFontSize(16);
     docPDF.text("REGISTO DE ALIMENTAÇÃO - FAZENDA KWANZA", 14, 15);
+    
     autoTable(docPDF, {
       head: [["LOTE", "DATA", "ALIMENTO", "QTD", "CUSTO UN.", "TOTAL"]],
       body: registos.map(r => [
-        r.loteId, r.data, r.tipoAlimento, `${r.quantidadeKg}kg`, 
+        r.loteId, 
+        r.data.split('-').reverse().join('/'), 
+        r.tipoAlimento, 
+        `${r.quantidadeKg}kg`, 
         `${Number(r.custoUnitario).toLocaleString()} Kz`,
         `${(r.quantidadeKg * r.custoUnitario).toLocaleString()} Kz`
       ]),
-      startY: 20, theme: 'grid'
+      startY: 20, 
+      theme: 'grid',
+      headStyles: { fillColor: [8, 145, 178] } // Cyan-600
     });
+
+    // Tabela de Resumo no PDF
+    const finalY = (docPDF as any).lastAutoTable.finalY + 10;
+    autoTable(docPDF, {
+      startY: finalY,
+      head: [["RESUMO DE INVESTIMENTO", "VALOR"]],
+      body: [
+        ["TOTAL CONSUMIDO", `${totalKg.toLocaleString()} Kg`],
+        ["PREÇO MÉDIO POR KG", `${precoMedioKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} Kz`],
+        ["INVESTIMENTO TOTAL", `${totalInvestido.toLocaleString()} Kz`]
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [31, 41, 55] },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+    });
+
     docPDF.save("Relatorio_Alimentacao.pdf");
   };
 
@@ -181,7 +220,7 @@ export default function AlimentacaoPage() {
       </header>
 
       {/* Formulário */}
-      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0">
+      <div className="bg-[#161922] rounded-2xl border border-slate-800/50 p-4 shrink-0 shadow-xl">
         <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-black text-slate-500 uppercase">Lote ID</label>
@@ -204,7 +243,7 @@ export default function AlimentacaoPage() {
             <input className="bg-[#0d0f14] border border-slate-800 p-2.5 rounded-xl text-white outline-none text-xs uppercase" value={formData.observacoes} onChange={e => setFormData({...formData, observacoes: e.target.value})} />
           </div>
           <div className="flex gap-2">
-            <button type="submit" className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-3 rounded-xl uppercase flex items-center justify-center gap-2">
+            <button type="submit" className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-[10px] py-3 rounded-xl uppercase flex items-center justify-center gap-2 transition-all">
               {editingId ? <Check size={16}/> : <Plus size={16}/>} Gravar
             </button>
             {editingId && (
@@ -244,9 +283,9 @@ export default function AlimentacaoPage() {
                         {isSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
                       </button>
                     </td>
-                    <td className="p-4 font-black text-cyan-500">{r.loteId}</td>
+                    <td className="p-4 font-black text-cyan-500 uppercase">{r.loteId}</td>
                     <td className="p-4 text-slate-400 font-bold">{r.data.split('-').reverse().join('/')}</td>
-                    <td className="p-4 text-slate-300 font-medium">{r.tipoAlimento}</td>
+                    <td className="p-4 text-slate-300 font-medium uppercase">{r.tipoAlimento}</td>
                     <td className="p-4 text-center text-white font-black">{Number(r.quantidadeKg).toFixed(1)} Kg</td>
                     <td className="p-4 text-right text-slate-400 font-bold">{Number(r.custoUnitario).toLocaleString()}</td>
                     <td className="p-4 text-right text-emerald-500 font-black">{(r.quantidadeKg * r.custoUnitario).toLocaleString()}</td>
@@ -263,27 +302,27 @@ export default function AlimentacaoPage() {
           </table>
         </div>
 
-        {/* BARRA DE RESUMO (NOVA) */}
+        {/* BARRA DE RESUMO (INTERFACE) */}
         <div className="bg-[#11141d] border-t border-slate-800 p-4 shrink-0 grid grid-cols-3 gap-4">
           <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50">
             <div className="p-2 bg-cyan-500/10 rounded-lg text-cyan-500"><TrendingUp size={20}/></div>
             <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase">Total Consumido</p>
-              <p className="text-lg font-black text-white">{totalKg.toLocaleString(undefined, { minimumFractionDigits: 1 })} <span className="text-[10px] text-slate-500">KG</span></p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Consumido</p>
+              <p className="text-xl font-black text-white">{totalKg.toLocaleString(undefined, { minimumFractionDigits: 1 })} <span className="text-xs text-slate-500 font-medium">KG</span></p>
             </div>
           </div>
           <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50">
             <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500"><Calculator size={20}/></div>
             <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase">Preço Médio / Kg</p>
-              <p className="text-lg font-black text-white">{precoMedioKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span className="text-[10px] text-slate-500">KZ</span></p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Preço Médio / Kg</p>
+              <p className="text-xl font-black text-white">{precoMedioKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span className="text-xs text-slate-500 font-medium">KZ</span></p>
             </div>
           </div>
           <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50">
             <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500"><DollarSign size={20}/></div>
             <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase">Investimento Total</p>
-              <p className="text-lg font-black text-emerald-500">{totalInvestido.toLocaleString()} <span className="text-[10px] text-slate-500">KZ</span></p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Investimento Total</p>
+              <p className="text-xl font-black text-emerald-500">{totalInvestido.toLocaleString()} <span className="text-xs text-slate-500 font-medium">KZ</span></p>
             </div>
           </div>
         </div>

@@ -49,6 +49,7 @@ export default function SaudePage() {
 
   const [formData, setFormData] = useState(initialForm);
 
+  // Cálculos de Resumo
   const totalGasto = registos.reduce((acc, r) => acc + (Number(r.custoMedicamento) || 0), 0);
   const mediaCarencia = registos.length > 0 
     ? registos.reduce((acc, r) => acc + (Number(r.periodoCarenciaDias) || 0), 0) / registos.length 
@@ -87,7 +88,6 @@ export default function SaudePage() {
             cleanItem[cleanKey] = item[key];
           });
 
-          // Função para formatar a data corretamente (AAAA-MM-DD)
           let dataFormatada = new Date().toISOString().split('T')[0];
           const rawDate = cleanItem.data;
           
@@ -96,12 +96,9 @@ export default function SaudePage() {
           } else if (typeof rawDate === 'string' && rawDate.includes('/')) {
             const parts = rawDate.split('/');
             if (parts.length === 3) dataFormatada = `${parts[2]}-${parts[1]}-${parts[0]}`;
-          } else if (rawDate) {
-            dataFormatada = String(rawDate);
           }
 
           const newDocRef = doc(collection(db, 'saude'));
-          
           batch.set(newDocRef, {
             loteId: String(cleanItem.loteid || cleanItem.codigolote || 'S/L').toUpperCase(),
             brinco: String(cleanItem.brinco || cleanItem.identificacao || 'COLETIVO').toUpperCase(),
@@ -118,35 +115,83 @@ export default function SaudePage() {
         });
 
         await batch.commit();
-        alert("Importação Concluída com Sucesso!");
+        alert("Importação Concluída!");
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) { 
         console.error(err);
-        alert("Erro ao processar o Excel.");
+        alert("Erro ao processar o arquivo.");
       }
     };
     reader.readAsBinaryString(file);
   };
 
   const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(registos.map(({ id, ...r }) => r));
+    const dataMain = registos.map(({ id, ...r }) => ({
+      'Lote': r.loteId,
+      'Brinco': r.brinco,
+      'Data': r.data,
+      'Tipo': r.tipo,
+      'Medicamento': r.medicamento,
+      'Dosagem': r.dosagem,
+      'Via': r.viaAplicacao,
+      'Carência (Dias)': r.periodoCarenciaDias,
+      'Custo (Kz)': r.custoMedicamento,
+      'Veterinário': r.veterinarioResponsavel
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataMain);
+
+    // Adiciona Rodapé de Resumo no Excel
+    XLSX.utils.sheet_add_aoa(worksheet, [
+      [],
+      ["RESUMO GERAL DE SAÚDE"],
+      ["Total de Procedimentos", registos.length],
+      ["Média de Carência (Dias)", mediaCarencia.toFixed(1)],
+      ["Investimento Total (Kz)", totalGasto.toFixed(0)]
+    ], { origin: -1 });
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Saude");
-    XLSX.writeFile(wb, "Relatorio_Saude.xlsx");
+    XLSX.utils.book_append_sheet(wb, worksheet, "Saude");
+    XLSX.writeFile(wb, "Relatorio_Saude_Fazenda_Kwanza.xlsx");
   };
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.text("FAZENDA KWANZA - REGISTO DE SAÚDE", 14, 15);
+    docPDF.setFontSize(16);
+    docPDF.text("REGISTO DE SAÚDE - FAZENDA KWANZA", 14, 15);
+    
     autoTable(docPDF, {
       head: [["LOTE", "BRINCO", "DATA", "MEDICAMENTO", "DOSAGEM", "VIA", "CARÊNCIA", "CUSTO"]],
       body: registos.map(r => [
-        r.loteId, r.brinco, r.data, r.medicamento, r.dosagem, r.viaAplicacao, `${r.periodoCarenciaDias}D`, `${r.custoMedicamento.toLocaleString()} KZ`
+        r.loteId, 
+        r.brinco, 
+        r.data.split('-').reverse().join('/'), 
+        r.medicamento, 
+        r.dosagem, 
+        r.viaAplicacao, 
+        `${r.periodoCarenciaDias}D`, 
+        `${r.custoMedicamento.toLocaleString()} KZ`
       ]),
       startY: 20,
+      theme: 'grid',
       headStyles: { fillColor: [220, 38, 38] }
     });
-    docPDF.save("Saude.pdf");
+
+    const finalY = (docPDF as any).lastAutoTable.finalY + 10;
+    autoTable(docPDF, {
+      startY: finalY,
+      head: [["RESUMO GERAL", "VALOR"]],
+      body: [
+        ["TOTAL DE PROCEDIMENTOS", registos.length],
+        ["MÉDIA PERÍODO CARÊNCIA", `${mediaCarencia.toFixed(1)} DIAS`],
+        ["INVESTIMENTO TOTAL", `${totalGasto.toLocaleString()} KZ`]
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [31, 41, 55] },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+    });
+
+    docPDF.save("Relatorio_Saude_Kwanza.pdf");
   };
 
   const handleSubmit = async (ev: React.FormEvent) => {
@@ -186,7 +231,7 @@ export default function SaudePage() {
           )}
           <input type="file" ref={fileInputRef} className="hidden" onChange={handleImportExcel} accept=".xlsx, .xls" />
           <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black flex items-center gap-2 hover:bg-slate-800">
-            <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR EXCEL
+            <UploadCloud size={14} className="text-cyan-500" /> IMPORTAR
           </button>
           <button onClick={exportToExcel} className="bg-[#1a202e] border border-slate-800 px-4 py-2 rounded-lg text-[10px] font-black flex items-center gap-2">
             <FileSpreadsheet size={14} className="text-emerald-500" /> EXCEL
@@ -237,7 +282,7 @@ export default function SaudePage() {
               {editingId ? <Check size={20} className="mx-auto"/> : <Plus size={20} className="mx-auto"/>}
             </button>
             {editingId && (
-              <button type="button" onClick={() => {setEditingId(null); setFormData(initialForm);}} className="bg-slate-800 p-2 rounded-xl text-white hover:bg-slate-700">
+              <button type="button" onClick={() => {setEditingId(null); setFormData(initialForm);}} className="bg-slate-800 p-2 rounded-xl text-white">
                 <RotateCcw size={16}/>
               </button>
             )}
@@ -279,7 +324,7 @@ export default function SaudePage() {
                   </td>
                   <td className="p-4 font-black text-cyan-500 uppercase">{r.loteId}</td>
                   <td className="p-4 text-white font-bold uppercase">{r.brinco}</td>
-                  <td className="p-4 text-slate-400 font-bold">{r.data}</td>
+                  <td className="p-4 text-slate-400 font-bold">{r.data.split('-').reverse().join('/')}</td>
                   <td className="p-4 text-[9px] font-black text-slate-500 uppercase">{r.tipo}</td>
                   <td className="p-4 text-white font-black flex items-center gap-2 uppercase">
                     <Pill size={12} className="text-red-500"/> {r.medicamento}
@@ -308,18 +353,19 @@ export default function SaudePage() {
           </table>
         </div>
 
+        {/* RESUMO INTERFACE */}
         <div className="bg-[#11141d] border-t border-slate-800 p-4 shrink-0 grid grid-cols-3 gap-4">
           <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50 shadow-inner">
             <div className="p-2 bg-red-500/10 rounded-lg text-red-500"><Syringe size={20}/></div>
-            <div><p className="text-[10px] font-black text-slate-500 uppercase">Procedimentos</p><p className="text-lg font-black text-white">{registos.length}</p></div>
+            <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Procedimentos</p><p className="text-xl font-black text-white">{registos.length}</p></div>
           </div>
           <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50 shadow-inner">
             <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500"><ShieldAlert size={20}/></div>
-            <div><p className="text-[10px] font-black text-slate-500 uppercase">Média Carência</p><p className="text-lg font-black text-white">{mediaCarencia.toFixed(1)} <span className="text-[10px] text-slate-500">DIAS</span></p></div>
+            <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Média Carência</p><p className="text-xl font-black text-white">{mediaCarencia.toFixed(1)} <span className="text-xs text-slate-500 font-medium">DIAS</span></p></div>
           </div>
           <div className="flex items-center gap-4 bg-[#161922] p-3 rounded-2xl border border-slate-800/50 shadow-inner">
             <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500"><DollarSign size={20}/></div>
-            <div><p className="text-[10px] font-black text-slate-500 uppercase">Investimento</p><p className="text-lg font-black text-emerald-500">{totalGasto.toLocaleString()} <span className="text-[10px] text-slate-500 uppercase">KZ</span></p></div>
+            <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Investimento</p><p className="text-xl font-black text-emerald-500">{totalGasto.toLocaleString()} <span className="text-xs text-slate-500 font-medium">KZ</span></p></div>
           </div>
         </div>
       </div>
