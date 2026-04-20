@@ -1,5 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAB5i4yR2030IdXs_0sv99zGv6E50Py7lw",
@@ -14,5 +18,10 @@ const firebaseConfig = {
 // Inicializar o Firebase
 const app = initializeApp(firebaseConfig);
 
-// Inicializar o Firestore (Banco de Dados)
-export const db = getFirestore(app);
+// Inicializar o Firestore com PERSISTÊNCIA ATIVADA
+// Isto força o browser a guardar os dados no IndexedDB (disco local)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
