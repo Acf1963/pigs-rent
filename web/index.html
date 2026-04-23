@@ -3,11 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/img/lg_pgs01.png" /> 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Matadouro Pro Gest</title>
+    <link rel="apple-touch-icon" href="/img/lg_pgs01.png" />
+    
+    <link rel="manifest" href="/manifest.json" />
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#111827" />
+    
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="GestPro" />
+    
+    <title>Matadouro Gest Pro</title>
+
+    <style>
+      /* Evita o flash branco enquanto o React carrega */
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #0a0f18;
+        overflow-x: hidden;
+      }
+      #root {
+        min-height: 100vh;
+      }
+    </style>
   </head>
-  <body>
+  <body class="bg-[#0a0f18]">
     <div id="root"></div>
+    
     <script type="module" src="/src/main.tsx"></script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {
+            // Silencioso se não houver sw.js ainda
+          });
+        });
+      }
+    </script>
   </body>
 </html>
