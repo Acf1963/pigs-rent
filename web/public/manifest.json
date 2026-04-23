@@ -1,23 +1,39 @@
 {
   "short_name": "GestPro",
   "name": "Matadouro Gest Pro",
-  "description": "Sistema de Gestão Pecuária",
+  "description": "Sistema de Gestão Pecuária - Fazenda Kwanza",
   "icons": [
     {
-      "src": "logo192.png",
+      "src": "/img/lg_pgs01.png",
       "type": "image/png",
       "sizes": "192x192",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "logo512.png",
+      "src": "/img/lg_pgs01.png",
       "type": "image/png",
       "sizes": "512x512",
-      "purpose": "any maskable"
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/img/lg_pgs01.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Painel Principal Desktop"
+    },
+    {
+      "src": "/img/lg_pgs01.png",
+      "sizes": "720x1280",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Painel Principal Mobile"
     }
   ],
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#111827",
-  "background_color": "#111827"
+  "background_color": "#0a0f18"
 }
