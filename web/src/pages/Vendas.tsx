@@ -5,8 +5,8 @@ import {
   deleteDoc, doc, updateDoc, writeBatch 
 } from 'firebase/firestore';
 import { 
-  ShoppingCart, Plus, Trash2, Check, UploadCloud, 
-  FileSpreadsheet, FileText, RotateCcw, TrendingUp, 
+  ShoppingCart, Plus, Trash2, Check, CloudUpload, 
+  FileSpreadsheet, FileDown, RotateCcw, TrendingUp, 
   Square, CheckSquare, Edit3, Tag
 } from 'lucide-react';
 
@@ -40,7 +40,6 @@ export default function VendasPage() {
     return () => unsubscribe();
   }, []);
 
-  // Lógica de Cálculos e Resumos
   const getResumo = (char: 'B' | 'S') => {
     const filtrados = vendas.filter(v => {
       const b = String(v.brinco || '').toUpperCase();
@@ -59,19 +58,7 @@ export default function VendasPage() {
 
   const formatarDataParaPDF = (dataStr: any) => {
     if (!dataStr || typeof dataStr !== 'string') return '---';
-    if (dataStr.includes('/')) return dataStr;
-    if (dataStr.includes('-')) return dataStr.split('-').reverse().join('/');
-    return dataStr;
-  };
-
-  // Funções de Ação
-  const deleteSelected = async () => {
-    if (window.confirm(`Deseja eliminar os ${selectedIds.length} registos selecionados?`)) {
-      const batch = writeBatch(db);
-      selectedIds.forEach(id => batch.delete(doc(db, 'vendas', id)));
-      await batch.commit();
-      setSelectedIds([]);
-    }
+    return dataStr.includes('-') ? dataStr.split('-').reverse().join('/') : dataStr;
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -81,25 +68,25 @@ export default function VendasPage() {
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const wb = XLSX.read(bstr, { type: 'binary' });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
         const batch = writeBatch(db);
         data.forEach((item: any) => {
           const newDocRef = doc(collection(db, 'vendas'));
           batch.set(newDocRef, {
-            codigoLote: String(item.loteId || item.codigoLote || item.Lote || '').toUpperCase(),
-            brinco: String(item.brinco || item.Brinco || '').toUpperCase(),
+            codigoLote: String(item.loteId || item.codigoLote || '').toUpperCase(),
+            brinco: String(item.brinco || '').toUpperCase(),
             dataVenda: item.dataVenda || new Date().toISOString().split('T')[0],
-            cliente: String(item.cliente || item.Cliente || 'CLIENTE GERAL').toUpperCase(),
-            produto: String(item.produto || item.Produto || 'GERAL').toUpperCase(),
-            pesoKg: parseFloat(item.pesoKg || item.Peso) || 0,
-            precoKz: parseFloat(item.precoKz || item.Preco) || 0,
+            cliente: String(item.cliente || 'CLIENTE GERAL').toUpperCase(),
+            produto: String(item.produto || 'GERAL').toUpperCase(),
+            pesoKg: parseFloat(item.pesoKg) || 0,
+            precoKz: parseFloat(item.precoKz) || 0,
             createdAt: new Date().toISOString()
           });
         });
         await batch.commit();
-        alert("Importação concluída!");
       } catch (err) { alert("Erro na importação."); }
+      e.target.value = '';
     };
     reader.readAsBinaryString(file);
   };
@@ -109,12 +96,6 @@ export default function VendasPage() {
       Lote: v.codigoLote, Brinco: v.brinco || '---', Data: v.dataVenda, 
       Cliente: v.cliente, 'Peso (Kg)': v.pesoKg, 'Preço (Kz)': v.precoKz, 'Total': v.pesoKg * v.precoKz
     })));
-    XLSX.utils.sheet_add_aoa(ws, [
-      [], ["RESUMO FINANCEIRO", "QTD CAB", "MÉDIA KZ/KG", "TOTAL FATURADO"],
-      ["BOVINOS", resumoB.total, `${resumoB.media} Kz`, resumoB.valor],
-      ["SUÍNOS", resumoS.total, `${resumoS.media} Kz`, resumoS.valor],
-      ["TOTAL GERAL", totalUnidades, "", totalGeral]
-    ], { origin: -1 });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Vendas");
     XLSX.writeFile(wb, "Relatorio_Vendas_Kwanza.xlsx");
@@ -122,25 +103,13 @@ export default function VendasPage() {
 
   const exportToPDF = () => {
     const docPDF = new jsPDF('l', 'mm', 'a4');
-    docPDF.setFontSize(16);
     docPDF.text("RELATÓRIO COMERCIAL - FAZENDA KWANZA", 14, 15);
     autoTable(docPDF, {
       head: [["LOTE", "BRINCO", "DATA", "CLIENTE", "PESO (KG)", "PREÇO (KZ)", "TOTAL (KZ)"]],
       body: vendas.map(v => [v.codigoLote, v.brinco || '---', formatarDataParaPDF(v.dataVenda), v.cliente, v.pesoKg, v.precoKz, (v.pesoKg * v.precoKz).toLocaleString()]),
-      startY: 25, headStyles: { fillColor: [16, 185, 129] }, styles: { fontSize: 8 }
+      startY: 25, styles: { fontSize: 8 }
     });
-    const finalY = (docPDF as any).lastAutoTable.finalY + 10;
-    autoTable(docPDF, {
-      startY: finalY,
-      head: [["RESUMO", "QTD CAB", "MÉDIA KZ/KG", "TOTAL FATURADO"]],
-      body: [
-        ["BOVINOS", resumoB.total, `${resumoB.media} Kz`, `${resumoB.valor.toLocaleString()} Kz`],
-        ["SUÍNOS", resumoS.total, `${resumoS.media} Kz`, `${resumoS.valor.toLocaleString()} Kz`],
-        ["TOTAL GERAL", `${totalUnidades} UN`, "", `${totalGeral.toLocaleString()} Kz`]
-      ],
-      theme: 'grid', headStyles: { fillColor: [31, 41, 55] }
-    });
-    docPDF.save("Relatorio_Vendas_Kwanza.pdf");
+    docPDF.save("Relatorio_Vendas.pdf");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -152,67 +121,65 @@ export default function VendasPage() {
   };
 
   return (
-    <div className="fixed inset-0 ml-64 p-4 flex flex-col bg-[#0a0f18] text-gray-200 font-sans overflow-hidden">
+    /* AJUSTE: Removido fixed/ml-64. Altura calculada para manter rodapé visível. */
+    <div className="w-full h-[calc(100vh-80px)] flex flex-col justify-between bg-[#0a0f18] text-gray-200 font-sans overflow-hidden p-4">
       
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-4 shrink-0">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2 uppercase tracking-tight">
-          <ShoppingCart className="text-emerald-500" size={28} /> Vendas
-        </h1>
-        <div className="flex gap-2">
-          {selectedIds.length > 0 && (
-            <button onClick={deleteSelected} className="bg-red-600/10 border border-red-500/50 px-4 py-2 rounded-xl text-[10px] font-black text-red-500 flex items-center gap-2 hover:bg-red-600">
-              <Trash2 size={16} /> ELIMINAR ({selectedIds.length})
+      <div className="flex flex-col shrink-0">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+            <ShoppingCart className="text-emerald-500" size={28} /> Vendas
+          </h1>
+          <div className="flex gap-2">
+            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
+            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44]">
+              <CloudUpload size={18} className="text-cyan-500" /> IMPORTAR
             </button>
-          )}
-          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} className="bg-[#1a2233] border border-gray-800 px-4 py-2 rounded-xl text-xs font-bold text-gray-400 flex items-center gap-2 hover:bg-[#252f44]">
-            <UploadCloud size={18} className="text-cyan-500" /> IMPORTAR
-          </button>
-          <button onClick={exportToExcel} className="bg-[#1a2233] border border-gray-800 px-4 py-2 rounded-xl text-xs font-bold text-gray-400 flex items-center gap-2 hover:bg-[#252f44]">
-            <FileSpreadsheet size={18} className="text-emerald-500" /> EXCEL
-          </button>
-          <button onClick={exportToPDF} className="bg-[#1a2233] border border-gray-800 px-4 py-2 rounded-xl text-xs font-bold text-gray-400 flex items-center gap-2 hover:bg-[#252f44]">
-            <FileText size={18} className="text-red-500" /> PDF
-          </button>
+            <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44]">
+              <FileSpreadsheet size={18} className="text-emerald-500" /> EXCEL
+            </button>
+            <button onClick={exportToPDF} className="flex items-center gap-2 px-4 py-2 bg-[#1a2233] text-gray-400 rounded-xl text-xs font-bold border border-gray-800 hover:bg-[#252f44]">
+              <FileDown size={18} className="text-red-500" /> PDF
+            </button>
+          </div>
+        </div>
+
+        {/* FORMULÁRIO */}
+        <div className="bg-[#111827]/50 p-6 rounded-2xl border border-gray-800/50 mb-4 shadow-xl">
+          <form onSubmit={handleSubmit} className="grid grid-cols-2 lg:flex lg:flex-nowrap gap-4 items-end">
+            <div className="flex-1">
+              <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Lote</label>
+              <input required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-white text-xs uppercase outline-none focus:border-emerald-500" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
+            </div>
+            <div className="flex-1">
+              <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Brinco</label>
+              <input className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-white text-xs uppercase outline-none focus:border-emerald-500" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value.toUpperCase()})} />
+            </div>
+            <div className="flex-[1.5]">
+              <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Cliente</label>
+              <input required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-white text-xs uppercase outline-none focus:border-emerald-500" value={formData.cliente} onChange={e => setFormData({...formData, cliente: e.target.value.toUpperCase()})} />
+            </div>
+            <div className="w-24">
+              <label className="text-[9px] font-black text-emerald-500 uppercase block mb-1 text-center">Peso (Kg)</label>
+              <input type="number" step="0.1" required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-emerald-500 font-black text-xs text-center outline-none focus:border-emerald-500" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: e.target.value})} />
+            </div>
+            <div className="w-28">
+              <label className="text-[9px] font-black text-emerald-500 uppercase block mb-1 text-center">Kz/Kg</label>
+              <input type="number" required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-emerald-500 font-black text-xs text-center outline-none focus:border-emerald-500" value={formData.precoKz} onChange={e => setFormData({...formData, precoKz: e.target.value})} />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] px-6 py-3.5 rounded-xl uppercase flex items-center gap-2 shadow-lg">
+                {editingId ? <Check size={18} /> : <Plus size={18} />} GRAVAR
+              </button>
+              <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-gray-800 p-3.5 rounded-xl text-slate-500 hover:text-white">
+                <RotateCcw size={18}/>
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 
-      {/* FORMULÁRIO */}
-      <div className="bg-[#111827]/50 p-6 rounded-2xl border border-gray-800/50 mb-4 shrink-0 shadow-xl">
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 lg:flex lg:flex-nowrap gap-4 items-end">
-          <div className="flex-1">
-            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Lote</label>
-            <input required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-white text-xs uppercase outline-none focus:border-emerald-500" value={formData.codigoLote} onChange={e => setFormData({...formData, codigoLote: e.target.value.toUpperCase()})} />
-          </div>
-          <div className="flex-1">
-            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Brinco</label>
-            <input className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-white text-xs uppercase outline-none focus:border-emerald-500" value={formData.brinco} onChange={e => setFormData({...formData, brinco: e.target.value.toUpperCase()})} />
-          </div>
-          <div className="flex-[1.5]">
-            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Cliente</label>
-            <input required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-white text-xs uppercase outline-none focus:border-emerald-500" value={formData.cliente} onChange={e => setFormData({...formData, cliente: e.target.value.toUpperCase()})} />
-          </div>
-          <div className="w-24">
-            <label className="text-[9px] font-black text-emerald-500 uppercase block mb-1 text-center">Peso (Kg)</label>
-            <input type="number" step="0.1" required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-emerald-500 font-black text-xs text-center outline-none focus:border-emerald-500" value={formData.pesoKg} onChange={e => setFormData({...formData, pesoKg: e.target.value})} />
-          </div>
-          <div className="w-28">
-            <label className="text-[9px] font-black text-emerald-500 uppercase block mb-1 text-center">Kz/Kg</label>
-            <input type="number" required className="w-full bg-black/40 border border-gray-700 p-3 rounded-xl text-emerald-500 font-black text-xs text-center outline-none focus:border-emerald-500" value={formData.precoKz} onChange={e => setFormData({...formData, precoKz: e.target.value})} />
-          </div>
-          <div className="flex gap-2">
-            <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] px-6 py-3.5 rounded-xl uppercase flex items-center gap-2 shadow-lg">
-              {editingId ? <Check size={18} /> : <Plus size={18} />} GRAVAR
-            </button>
-            <button type="button" onClick={() => { setEditingId(null); setFormData(initialForm); }} className="bg-gray-800 p-3.5 rounded-xl text-slate-500 hover:text-white">
-              <RotateCcw size={18}/>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* TABELA */}
+      {/* TABELA - Ocupa o espaço central com scroll próprio */}
       <div className="bg-[#111827]/30 rounded-2xl border border-gray-800 mb-4 flex-1 min-h-0 shadow-2xl overflow-hidden">
         <div className="h-full overflow-auto scrollbar-custom">
           <table className="min-w-[1200px] w-full text-left text-[11px] border-separate border-spacing-0">
@@ -263,7 +230,7 @@ export default function VendasPage() {
         </div>
       </div>
 
-      {/* RODAPÉ */}
+      {/* RODAPÉ - Mantido visível no fundo */}
       <footer className="bg-[#0c121d] border border-gray-800 p-4 rounded-2xl flex flex-col md:flex-row gap-6 px-6 items-center shrink-0 shadow-2xl">
         <div className="flex-1 flex flex-col">
           <span className="text-[10px] text-cyan-500 font-black uppercase mb-1 tracking-widest">BOVINOS FATURADOS</span>
@@ -289,7 +256,6 @@ export default function VendasPage() {
       </footer>
 
       <style>{`
-        html, body, #root { margin: 0; padding: 0; height: 100%; overflow: hidden; }
         .scrollbar-custom::-webkit-scrollbar { width: 6px; height: 6px; }
         .scrollbar-custom::-webkit-scrollbar-track { background: #0a0f18; }
         .scrollbar-custom::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 10px; }
