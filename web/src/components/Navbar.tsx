@@ -27,29 +27,28 @@ export default function Navbar() {
     try {
       await signOut(auth);
       navigate('/');
-    } catch (error) { console.error(error); }
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   return (
-    <nav className="bg-[#111827] border-b border-white/5 sticky top-0 z-[100] w-full">
-      <div className="max-w-[1600px] mx-auto px-6">
+    <nav className="bg-[#111827] border-b border-white/5 sticky top-0 z-[100] w-full shadow-2xl">
+      <div className="max-w-[1600px] mx-auto px-4 md:px-6">
         <div className="flex items-center justify-between h-20">
           
           {/* LOGO E NOME */}
-          <div className="flex items-center gap-4">
-            <img src="./img/lg_pgs01.png" alt="Logo" className="h-20" />
+          <div className="flex items-center gap-3">
+            <img src="./img/lg_pgs01.png" alt="Logo" className="h-14 w-auto md:h-16" />
             
-            {/* NOME DO SISTEMA EM CYAN */}
             <div className="flex flex-col">
-              <span className="text-[#54bece] font-black text-xl tracking-tighter leading-none uppercase">
-                Matadouro Gest Pro
+              <span className="text-[#54bece] font-black text-lg md:text-xl tracking-tighter leading-none uppercase italic">
+                Matadouro <span className="text-[#54bece]">Gest Pro</span>
               </span>
-              <span className="text-[9px] text-slate-500 font-bold tracking-[0.2em] uppercase">
-                Sistema de Gestão
+              <span className="text-[8px] md:text-[9px] text-slate-500 font-bold tracking-[0.2em] uppercase mt-1">
+                Fazenda Kwanza • Luanda
               </span>
             </div>
-
-            <div className="h-8 w-[1px] bg-white/10 hidden md:block ml-2" />
           </div>
 
           {/* MENU DESKTOP */}
@@ -61,7 +60,7 @@ export default function Navbar() {
                 className={({ isActive }) => `
                   flex items-center gap-2 px-3 py-2 rounded-lg text-[9px] font-black tracking-widest transition-all
                   ${isActive 
-                    ? 'bg-[#0ea5e9] text-white shadow-lg shadow-cyan-900/40' 
+                    ? 'bg-[#54bece] text-[#0a0f18] shadow-lg shadow-cyan-500/20' 
                     : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}
                 `}
               >
@@ -72,18 +71,21 @@ export default function Navbar() {
           </div>
 
           {/* BOTÕES DE AÇÃO */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <button
               onClick={handleLogout}
-              className="text-red-400 hover:bg-red-500/10 p-2 rounded-lg transition-all"
-              title="Sair da Aplicação"
+              className="text-red-400/70 hover:text-red-400 hover:bg-red-500/10 p-2.5 rounded-xl transition-all"
+              title="Sair"
             >
-              <LogOut size={20} />
+              <LogOut size={22} />
             </button>
             
-            {/* Botão Mobile */}
-            <button className="xl:hidden text-white" onClick={() => setIsOpen(!isOpen)}>
-              {isOpen ? <X size={24} /> : <Menu size={24} />}
+            {/* Botão de Menu para Smartphone */}
+            <button 
+              className="xl:hidden bg-white/5 p-2.5 rounded-xl text-[#54bece] active:scale-95 transition-transform" 
+              onClick={() => setIsOpen(!isOpen)}
+            >
+              {isOpen ? <X size={26} /> : <Menu size={26} />}
             </button>
           </div>
         </div>
@@ -91,17 +93,33 @@ export default function Navbar() {
 
       {/* MENU MOBILE DROP DOWN */}
       {isOpen && (
-        <div className="xl:hidden bg-[#111827] border-t border-white/5 p-4 space-y-2">
-          {menuItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              onClick={() => setIsOpen(false)}
-              className="flex items-center gap-3 p-4 text-slate-400 font-bold text-xs uppercase"
-            >
-              {item.icon} {item.label}
-            </NavLink>
-          ))}
+        <div className="xl:hidden bg-[#0d1421] border-t border-white/5 p-4 absolute top-20 left-0 w-full shadow-2xl animate-in slide-in-from-top duration-300">
+          <div className="grid grid-cols-1 gap-2">
+            {menuItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                onClick={() => setIsOpen(false)}
+                className={({ isActive }) => `
+                  flex items-center gap-4 p-5 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all
+                  ${isActive 
+                    ? 'bg-[#54bece] text-[#0a0f18]' 
+                    : 'bg-white/[0.02] text-slate-400 border border-white/5 shadow-inner'}
+                `}
+              >
+                <span className="flex-shrink-0">
+                  {item.icon}
+                </span>
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+          
+          <div className="mt-4 p-4 text-center">
+             <p className="text-[8px] text-slate-600 font-bold uppercase tracking-[0.3em]">
+               Utilizador: <span className="text-slate-400">{auth.currentUser?.email}</span>
+             </p>
+          </div>
         </div>
       )}
     </nav>
