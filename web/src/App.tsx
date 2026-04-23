@@ -5,9 +5,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 
 // Componentes
 import LoginPage from './components/LoginPage';
-import Navbar from './components/Navbar'; // Nome alterado de Sidebar para Navbar
+import Navbar from './components/Navbar';
 
-// Páginas (Conforme a tua estrutura de pastas)
+// Páginas
 import DashboardPage from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Lotes from './pages/Lotes';
@@ -26,15 +26,46 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+
+      // --- LÓGICA DE BLINDAGEM DE INSTALAÇÃO (PWA) ---
+      const ADMIN_EMAIL = 'acfs1963@gmail.com';
+      const manifestLink = document.querySelector('link[rel="manifest"]');
+
+      if (currentUser && currentUser.email === ADMIN_EMAIL) {
+        // Se for o António, injeta o manifest para permitir instalar
+        if (!manifestLink) {
+          const link = document.createElement('link');
+          link.rel = 'manifest';
+          link.href = '/manifest.json';
+          document.head.appendChild(link);
+        }
+      } else {
+        // Se for Demo ou deslogado, remove o manifest (bloqueia instalação)
+        if (manifestLink) manifestLink.remove();
+      }
     });
-    return () => unsubscribe();
+
+    // Bloqueio de pop-up automático para utilizadores não-admin
+    const handleBeforeInstall = (e: any) => {
+      if (auth.currentUser?.email !== 'acfs1963@gmail.com') {
+        e.preventDefault();
+        return false;
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
   }, []);
 
-  // Ecrã de loading durante a verificação do Firebase
+  // Ecrã de loading com as cores do sistema
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0a0f18] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+        <div className="w-10 h-10 border-4 border-[#54bece]/20 border-t-[#54bece] rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -46,13 +77,20 @@ function App() {
 
   return (
     <BrowserRouter>
-      {/* Estrutura Vertical (Coluna) para o Menu de Topo */}
-      <div className="min-h-screen bg-[#0a0f18] flex flex-col">
+      <div className="min-h-screen bg-[#0a0f18] flex flex-col font-sans">
         
-        {/* O Menu agora fica no topo e fixo */}
+        {/* Navbar no topo com lógica de perfil (Admin ou Demo) */}
         <Navbar />
         
-        {/* O conteúdo principal expande-se para ocupar o resto do ecrã */}
+        {/* Aviso discreto para Modo de Demonstração */}
+        {user.email === 'demo@matadouro.ao' && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 py-1 text-center">
+            <span className="text-[9px] font-black text-amber-500 uppercase tracking-[0.2em]">
+              Modo de Demonstração • Apenas Visualização
+            </span>
+          </div>
+        )}
+        
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-[1600px] mx-auto">
             <Routes>
@@ -75,8 +113,7 @@ function App() {
           </div>
         </main>
 
-        {/* Rodapé opcional ou créditos */}
-        <footer className="p-4 text-center border-t border-white/5">
+        <footer className="p-4 text-center border-t border-white/5 bg-[#111827]/30">
           <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
             Fazenda Kwanza © 2026 | Sistema de Gestão Pecuária
           </p>
